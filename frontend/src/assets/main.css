@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-dock-bg: #070b14;
+  --color-dock-surface: #0f1629;
+  --color-dock-panel: #151d30;
+  --color-dock-border: #1e2a45;
+  --color-dock-border-light: #2a3a5c;
+  --color-dock-text: #e2e8f0;
+  --color-dock-text-muted: #94a3b8;
+  --color-dock-text-dim: #64748b;
+  --color-dock-accent: #0ea5e9;
+  --color-dock-accent-hover: #38bdf8;
+  --color-dock-success: #22c55e;
+  --color-dock-warning: #eab308;
+  --color-dock-error: #ef4444;
+  --color-dock-info: #6366f1;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@layer base {
+  html, body {
+    @apply h-full w-full overflow-hidden;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-dock-surface;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dock-border rounded-full hover:bg-dock-border-light transition-colors;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-dock-panel/80 backdrop-blur-md border border-dock-border shadow-lg rounded-xl;
+  }
+}

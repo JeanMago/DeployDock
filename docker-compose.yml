@@ -1,0 +1,103 @@
+version: "3.9"
+
+# ============================================
+# DeployDock - Production Docker Compose
+# ============================================
+# Orchestrates the 3 core services:
+#   1. backend  - FastAPI (Python) API server
+#   2. frontend - Vue.js SPA served via Nginx
+#   3. db       - PostgreSQL 16 database
+
+services:
+  # -------------------------------------------
+  # Backend - FastAPI Application
+  # -------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: deploydock-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount Docker socket to allow container management from inside the backend
+      # Linux: /var/run/docker.sock
+      # Windows (Docker Desktop): //var/run/docker.sock (via WSL2 translation)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistent storage for cloned repositories
+      - repos_data:/app/repos
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://deploydock:deploydock@db:5432/deploydock}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-changeme}
+      - DOCKER_HOST=${DOCKER_HOST:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost","http://localhost:3000"]}
+      - REPOS_BASE_PATH=/app/repos
+      - HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-30}
+      - HEALTH_CHECK_RETRIES=${HEALTH_CHECK_RETRIES:-3}
+    networks:
+      - deploydock-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # -------------------------------------------
+  # Frontend - Vue.js SPA via Nginx
+  # -------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: deploydock-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - deploydock-net
+
+  # -------------------------------------------
+  # Database - PostgreSQL 16
+  # -------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: deploydock-db
+    restart: unless-stopped
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-deploydock}
+      - POSTGRES_USER=${POSTGRES_USER:-deploydock}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-deploydock}
+    networks:
+      - deploydock-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deploydock} -d ${POSTGRES_DB:-deploydock}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# -------------------------------------------
+# Named Volumes
+# -------------------------------------------
+volumes:
+  pg_data:
+    driver: local
+  repos_data:
+    driver: local
+
+# -------------------------------------------
+# Networks
+# -------------------------------------------
+networks:
+  deploydock-net:
+    driver: bridge

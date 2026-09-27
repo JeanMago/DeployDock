@@ -1,0 +1,235 @@
+Proposta de Trabalho de Conclusão de Curso (TCC)
+1. Identificação do Projeto
+Título Proposto: Automação de Infraestrutura e GitOps Simplificado: Uma Plataforma Integrada para Gerenciamento de Contêineres Docker e Entrega Contínua Orientada a Eventos do GitHub
+Área de Concentração: Engenharia de Software, Sistemas Distribuídos e Infraestrutura de TI (DevOps).
+Nível: Bacharelado em Ciência da Computação.
+2. Contextualização e Justificativa
+A conteinerização de software, impulsionada pelo ecossistema Docker, consolida-se como o padrão da indústria para assegurar a reprodutibilidade e a consistência de ambientes entre as etapas de desenvolvimento, testes e produção. Ao empacotar aplicações e suas dependências em unidades isoladas e portáveis, essa tecnologia reduz expressivamente os gargalos de configuração e distribuição de software.
+Contudo, a gestão operacional de contêineres em ambientes de pequeno e médio porte — como empresas emergentes, projetos independentes e infraestruturas locais (Edge/On-Premises) — ainda apresenta desafios relevantes:
+Fragmentação do Ecossistema de Ferramentas: Para monitorar o estado dos recursos computacionais (contêineres, volumes, redes e imagens) e simultaneamente sincronizar o ambiente de execução com o repositório de código, as equipes frequentemente alternam entre a interface de linha de comando (CLI) do Docker, painéis de monitoramento externos e rotinas de automação manuais ou pipelines complexos de integração e entrega contínuas (CI/CD).
+Complexidade e Sobrecarga de Soluções Corporativas: Plataformas consolidadas de orquestração e GitOps (como Kubernetes, ArgoCD e GitLab CI) possuem uma curva de aprendizado íngreme e exigem uma quantidade considerável de recursos computacionais (memória RAM e CPU), tornando-se inviáveis para infraestruturas enxutas.
+Limitações Tecnológicas de Soluções Minimalistas: Ferramentas voltadas à atualização automática (como o Watchtower) operam prioritariamente por meio de consultas periódicas (polling) em registros de imagens, carecendo de interfaces gráficas para controle de estado, análise de logs em tempo real, mecanismos nativos de reversão (rollback) e inspeção direta de contêineres. Por outro lado, painéis de gerenciamento visual (como o Portainer) frequentemente tratam os fluxos de deploy contínuo orientados a eventos como recursos secundários ou restritos a licenças corporativas.
+Dessa forma, este projeto justifica-se pela necessidade de unificar o gerenciamento visual de recursos e a entrega contínua (CD) em uma plataforma auto-hospedável, leve e orientada a eventos. A solução proposta atuará como um intermediário direto entre o repositório de código-fonte (GitHub) e o mecanismo de execução de contêineres (Docker Engine), permitindo a automação do ciclo de deploy sem a sobrecarga operacional associada a arquiteturas corporativas de grande porte.
+3. Definição do Problema e Questão de Pesquisa
+Problema: Equipes de desenvolvimento em cenários de pequena e média escala enfrentam alto atrito operacional, inconsistências de ambiente e riscos de indisponibilidade ao realizarem atualizações manuais de aplicações conteinerizadas ou ao tentarem manter pipelines de CI/CD superdimensionados para suas necessidades reais.
+Questão de Pesquisa: Como conceber, arquitetar e implementar uma ferramenta de baixo consumo de recursos que integre a gestão direta da Docker Engine à automação de implantação via Webhooks do GitHub, garantindo consistência de ambiente, segurança nas requisições e minimização do tempo de inatividade?
+4. Objetivos
+4.1 Objetivo Geral
+Projetar, implementar e avaliar uma aplicação web auto-hospedável dedicada ao gerenciamento do ciclo de vida de contêineres Docker e à orquestração automatizada da atualização de serviços, a partir do processamento de eventos de alteração de código (push events) originados em repositórios do GitHub.
+4.2 Objetivos Específicos
+Levantamento e Especificação de Requisitos: Mapear e formalizar os requisitos funcionais e não funcionais essenciais para o gerenciamento de contêineres e a integração automatizada com o GitHub.
+Integração com a API da Docker Engine: Desenvolver uma camada de abstração e comunicação direta com o soquete do Docker (/var/run/docker.sock ou interface TCP segura), permitindo a execução de operações do ciclo de vida (inicialização, interrupção, reinicialização, compilação e limpeza) e a coleta de métricas de desempenho (uso de CPU, memória e transmissão de logs).
+Mecanismo de Webhooks e Implantação Segura: Construir um módulo receptor e validador de Webhooks do GitHub que autentique as requisições por meio de assinaturas criptográficas (HMAC-SHA256) e orquestre rotinas automatizadas de atualização de código, recomposição de imagens e substituição de contêineres.
+Interface Gráfica e Monitoramento: Desenvolver um painel de controle (Dashboard) responsivo voltado ao acompanhamento do estado dos serviços, gestão de variáveis de ambiente, transmissão contínua de logs (streaming) e auditoria do histórico de implantações.
+Mecanismos de Resiliência e Reversão (Rollback): Implementar rotinas de verificação de integridade (health checks) pós-implantação, garantindo a reversão automática para a versão funcional anterior em caso de falha no novo build ou na execução do contêiner.
+Avaliação Experimental e Validação: Mensurar a latência do fluxo de implantação, a taxa de utilização dos recursos computacionais da ferramenta e a eficácia das atualizações automatizadas em comparação com processos manuais e soluções correlatas.
+5. Fundamentação Teórica Preliminar
+O referencial teórico da pesquisa estrutura-se em quatro eixos fundamentais:
+Virtualização em Nível de Sistema Operacional: Mapeamento dos mecanismos do kernel Linux aplicados ao isolamento de processos (namespaces e cgroups), arquitetura interna do Docker (dockerd, containerd, runc) e padronização da comunicação via Docker Engine REST API.
+Cultura DevOps e Práticas de GitOps: Análise das metodologias de automação de entrega de software, adoção de repositórios Git como fonte única da verdade para o estado da infraestrutura e estratégias para mitigação do tempo de indisponibilidade (zero-downtime deployment).
+Arquitetura Orientada a Eventos e Webhooks: Estudo dos padrões de comunicação assíncrona baseados em HTTP, técnicas de processamento de cargas e validação de segurança de requisições distribuídas.
+Segurança em Ambientes Conteinerizados: Investigação de boas práticas para mitigação de vulnerabilidades associadas à exposição do soquete do Docker, controle de privilégios de execução e gerenciamento seguro de variáveis de ambiente e credenciais sensíveis.
+6. Metodologia e Arquitetura Proposta
+6.1 Método de Desenvolvimento
+Este trabalho adota uma abordagem de pesquisa aplicada, pautada nos princípios da Engenharia de Software baseada em prototipação iterativa e incremental, estruturada nas seguintes etapas:
+Fase 1 (Fundamentação e Modelagem): Levantamento bibliográfico, especificação formal da arquitetura do sistema e mapeamento dos endpoints da Docker API e do modelo de eventos do GitHub Webhooks.
+Fase 2 (Desenvolvimento do Núcleo Backend): Implementação do serviço de integração com a Docker Engine e do receptor de Webhooks, acompanhado de um gerenciador assíncrono de filas de implantação.
+Fase 3 (Interface Gráfica e Comunicação em Tempo Real): Construção do painel web interativo e estabelecimento da comunicação via WebSockets para atualização remota de logs e métricas.
+Fase 4 (Mecanismos de Resiliência): Desenvolvimento do subsistema de verificação de saúde (health check) e das rotinas automáticas de reversão (rollback).
+Fase 5 (Avaliação Experimental e Sistematização): Execução de ensaios empíricos, análise comparativa de resultados e redação da monografia final.
+
+
+6.2 Visão Geral da Arquitetura do Sistema
+
+                   ┌─────────────────────────┐
+                   │       GitHub Repo       │
+                   └────────────┬────────────┘
+                                │ HTTP POST (Push Event / HMAC)
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     APLICAÇÃO PROPOSTA                      │
+│                                                             │
+│   ┌─────────────────────┐       ┌───────────────────────┐   │
+│   │   Webhook Receiver  │──────▶│   Deploy Orchestrator │   │
+│   │   (Validação HMAC)  │       │ (Queue / Build / Roll)│   │
+│   └─────────────────────┘       └───────────┬───────────┘   │
+│                                             │               │
+│   ┌─────────────────────┐                   │ Docker SDK    │
+│   │    Web Dashboard    │                   ▼               │
+│   │  (UI / WebSockets)  │       ┌───────────────────────┐   │
+│   └──────────┬──────────┘       │  Docker API Connector │   │
+│              │                  └───────────┬───────────┘   │
+└──────────────┼──────────────────────────────┼───────────────┘
+               │                              │ UNIX Socket
+               ▼                              ▼
+     [ Navegador do Usuário ]      [ Docker Engine / Daemon ]
+                                   (Containers, Images, Logs)
+6.3 Tecnologias Sugeridas para o Protótipo
+Backend: Linguagem de programação compilada ou assíncrona de elevado desempenho com suporte maduro ao ecossistema de infraestrutura (como Go ou Python/FastAPI), viabilizando a integração direta com a biblioteca cliente oficial do Docker (docker/docker/client).
+Frontend: Aplicação de Página Única (Single Page Application - SPA) desenvolvida em Vue.js ou React com estilização via Tailwind CSS, visando leveza na renderização e atualização dinâmica da interface por meio de WebSockets ou Server-Sent Events (SSE).
+Persistência de Dados: Sistema de gerenciamento de banco de dados leve e embarcado (como SQLite ou PostgreSQL em contêiner dedicado) para armazenar metadados dos projetos, mapeamentos de repositórios, registros de execuções e credenciais salvas de forma criptografada.
+7. Critérios de Avaliação e Resultados Esperados
+A validação do protótipo desenvolvido será realizada por meio de experimentos práticos estruturados em duas abordagens principais:
+Avaliação Funcional: Verificação do fluxo de automação de implantação de uma aplicação web multicontêiner (composta por camadas de frontend, backend e banco de dados) disparada por eventos de alteração na ramificação principal do GitHub, avaliando a integridade dos serviços provisionados e a fluidez na transmissão de logs.
+Avaliação de Desempenho e Consumo de Recursos:
+Análise do consumo de memória RAM e utilização de CPU da ferramenta proposta em estados de ociosidade e durante o processo de compilação/implantação, comparando os dados obtidos com plataformas consolidadas (ex.: Portainer) e pipelines tradicionais de CI/CD.
+Medição do tempo total decorrido entre o disparo do evento pelo repositório remoto e a disponibilização efetiva do novo ambiente em execução.
+Simulação de falhas induzidas (como erros sintáticos ou de configuração no commit) para avaliar a eficácia do mecanismo de reversão automática e a manutenção da estabilidade da versão funcional pré-existente.
+8. Cronograma de Atividades
+8.1 Tabela de Planejamento (Agosto a Dezembro)
+O planejamento das atividades encontra-se distribuído ao longo do período do semestre letivo, concentrando as etapas de desenvolvimento, avaliação experimental e elaboração textual nos meses de Setembro e Outubro:
+
+Etapa / Atividade
+Ago
+Set
+Out
+Nov
+Dez
+1. Planejamento e Especificação: Alinhamento de escopo, revisão bibliográfica e especificação técnica
+X
+
+
+
+
+
+
+
+
+2. Integração Docker Engine: Comunicação com a Docker API via UNIX socket (/var/run/docker.sock)
+X
+X
+
+
+
+
+
+
+3. Receptor de Webhooks e Fila de Deploy: Validação HMAC-SHA256, parse de eventos e pipeline de build
+
+
+X
+
+
+
+
+
+
+4. Desenvolvimento da Interface (Dashboard): Telas de monitoramento, controle de contêineres e logs em tempo real
+
+
+X
+X
+
+
+
+
+5. Resiliência e Rollback: Checagens de saúde (health checks), fallback automático e gestão de versões
+
+
+X
+X
+
+
+
+
+6. Ensaios Experimentais e Benchmarks: Testes de carga, medição de overhead (CPU/RAM) e validação de cenários
+
+
+
+
+X
+
+
+
+
+7. Redação da Monografia: Escrita de fundamentação, metodologia, arquitetura, análise de resultados e conclusão
+
+
+X
+X
+
+
+
+
+8. Marco 1: Entrega do Relatório para o Orientador (01/11)
+
+
+
+
+
+
+★
+
+
+9. Revisão e Ajustes Normativos: Incorporação de correções do orientador e padronização ABNT
+
+
+
+
+
+
+X
+
+
+10. Marco 2: Entrega do Relatório para a Banca (30/11)
+
+
+
+
+
+
+★
+
+
+11. Preparação para a Defesa: Confecção de apresentação, roteiro e demonstração prática
+
+
+
+
+
+
+
+
+X
+12. Marco Final: Defesa perante a Banca Examinadora (15/12 a 19/12)*
+
+
+
+
+
+
+
+
+★
+
+* Nota: O período formal reservado para as bancas examinadoras estende-se de 15/12 a 19/12, podendo ser ajustado conforme alinhamento entre orientador, discente e membros avaliadores.
+8.2 Detalhamento das Atividades por Mês
+Agosto (Fase Preliminar e Preparatória):
+Delimitação do escopo funcional, mapeamento das bibliotecas oficiais da Docker Engine API e definição dos protocolos de segurança para os Webhooks do GitHub.
+Configuração do ambiente de desenvolvimento, estruturação do repositório base e realização dos testes iniciais de comunicação com o soquete do Docker (/var/run/docker.sock).
+Setembro (Núcleo de Desenvolvimento - Backend e Automação):
+Construção do serviço receptor de Webhooks acompanhado do subsistema de autenticação via assinatura HMAC-SHA256.
+Desenvolvimento do orquestrador de automação: rotina assíncrona responsável pelo fluxo de atualização do repositório, reconstrução das imagens e substituição progressiva dos contêineres.
+Implementação inicial da interface do usuário (Dashboard) e integração da transmissão de dados em tempo real via WebSockets/SSE para visualização de logs de compilação e execução.
+Redação das seções fundamentais do documento (Introdução, Fundamentação Teórica e Arquitetura do Sistema).
+Outubro (Núcleo de Desenvolvimento - Interface, Resiliência e Testes):
+Finalização da interface visual e inclusão de controles operacionais sobre os contêineres (operações de inicialização, interrupção, reinicialização e inspeção de recursos).
+Implementação do módulo de resiliência: validações de integridade pós-implantação (health check) e acionamento automatizado de rollback em caso de detecção de falhas.
+Condução dos testes experimentais e coleta de métricas comparativas (tempo de resposta, consumo computacional de RAM/CPU e resiliência a falhas induzidas).
+Redação aprofundada dos capítulos de Desenvolvimento, Análise dos Resultados e Conclusão.
+Novembro (Revisão, Homologação e Entregas):
+01/11 — Marco 1 (Entrega ao Orientador): Submissão da versão completa do relatório para apreciação e correções do orientador.
+02/11 a 29/11: Aplicação das recomendações da orientação, revisão gramatical e adequação rigorosa às normas da ABNT.
+30/11 — Marco 2 (Entrega à Banca Examinadora): Disponibilização da versão final do texto para os membros da banca examinadora.
+Dezembro (Banca e Encerramento):
+Elaboração do material de apresentação, definição do roteiro e preparação do ambiente para demonstração prática do protótipo (implantação via webhook em tempo real).
+15/12 a 19/12 — Marco Final: Apresentação pública e defesa do Trabalho de Conclusão de Curso perante a banca examinadora.
+
+9. Referências Bibliográficas Preliminares
+BASS, Len; WEBER, Ingo; ZHU, Liming. DevOps: A Software Architect's Perspective. Boston: Addison-Wesley, 2015.
+DOCKER INC. Docker Engine API Documentation. Disponível em: https://docs.docker.com/engine/api/. Acesso em: 2026.
+FOWLER, Martin. Continuous Delivery: Reliable Software Releases through Build, Test, and Deployment Automation. Boston: Addison-Wesley, 2010.
+GITHUB. Securing your webhooks. GitHub Docs. Disponível em: https://docs.github.com/en/webhooks/using-webhooks/securing-your-webhooks. Acesso em: 2026.
+MERKEL, Dirk. Docker: lightweight linux containers for consistent development and deployment. Linux Journal, v. 2014, n. 239, p. 2, 2014.
+MORRIS, Kief. Infrastructure as Code: Dynamic Systems for the Cloud Age. 2. ed. Sebastopol: O'Reilly Media, 2020.
+

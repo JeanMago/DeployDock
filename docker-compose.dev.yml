@@ -1,0 +1,53 @@
+version: "3.9"
+
+# ============================================
+# DeployDock - Development Override
+# ============================================
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Overrides for local development:
+#   - Backend: hot reload with uvicorn --reload + source mount
+#   - Frontend: runs npm run dev directly (not nginx)
+#   - PostgreSQL: port exposed for direct access
+
+services:
+  # -------------------------------------------
+  # Backend - Development mode with hot reload
+  # -------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./backend/app:/app/app:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - repos_data:/app/repos
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://deploydock:deploydock@db:5432/deploydock
+      - SECRET_KEY=dev-secret-key-not-for-production
+      - GITHUB_WEBHOOK_SECRET=dev-webhook-secret
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://localhost"]
+
+  # -------------------------------------------
+  # Frontend - Vite dev server with HMR
+  # -------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+    command: npm run dev -- --host 0.0.0.0 --port 3000
+
+  # -------------------------------------------
+  # Database - Expose port for direct access
+  # -------------------------------------------
+  db:
+    ports:
+      - "5432:5432"
