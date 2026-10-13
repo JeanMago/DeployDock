@@ -8,6 +8,7 @@ Webhook → Clone/Pull → Build → Deploy → Health Check → Rollback (em ca
 import asyncio
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -96,7 +97,9 @@ class DeployOrchestrator:
             image_tag = f"deploydock-{project.name.lower()}:{deployment.commit_sha[:8]}"
             build_logs: list[str] = []
 
-            # Build é síncrono — rodamos em thread separada e consumimos via queue
+            # Build é síncrono — rodamos em thread daemon e alimentamos uma asyncio.Queue
+            # Usamos threading.Thread diretamente (não asyncio.to_thread) para garantir
+            # streaming progressivo dos logs durante o build (padrão adotado em ws.py)
             log_queue: asyncio.Queue[str | None] = asyncio.Queue()
             loop = asyncio.get_running_loop()
 
@@ -113,8 +116,8 @@ class DeployOrchestrator:
                     loop.call_soon_threadsafe(log_queue.put_nowait, f"BUILD_ERROR: {exc}")
                     loop.call_soon_threadsafe(log_queue.put_nowait, None)
 
-            build_thread = asyncio.to_thread(_build_worker)
-            asyncio.create_task(build_thread)
+            build_thread = threading.Thread(target=_build_worker, daemon=True)
+            build_thread.start()
 
             while True:
                 line = await log_queue.get()

@@ -15,6 +15,12 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import settings
 from app.db.base import Base
 
+# Importar todos os modelos para que Base.metadata os registre antes do create_all.
+# Sem esses imports, o SQLAlchemy não encontra as tabelas ao chamar metadata.create_all().
+import app.models.project          # noqa: F401
+import app.models.deployment        # noqa: F401
+import app.models.environment       # noqa: F401
+
 # Engine assíncrona
 engine = create_async_engine(
     settings.DATABASE_URL,

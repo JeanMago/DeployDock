@@ -31,6 +31,7 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     return project
 
 @router.put("/{project_id}", response_model=ProjectRead)
+@router.patch("/{project_id}", response_model=ProjectRead)
 async def update_project(project_id: uuid.UUID, project_in: ProjectUpdate, db: AsyncSession = Depends(get_db)):
     project = await get_project(project_id, db)
     update_data = project_in.model_dump(exclude_unset=True)

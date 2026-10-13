@@ -1,26 +1,32 @@
+// Tipos TypeScript sincronizados com os schemas Pydantic do backend.
+
 export interface Container {
   id: string;
   name: string;
   image: string;
   status: string;
-  state: string;
-  ports: { ip: string; privatePort: number; publicPort: number; type: string }[];
+  state: string | null;
+  ports: Record<string, unknown> | null;
+  created: string | null;
 }
 
 export interface ContainerDetail extends Container {
-  env: string[];
-  mounts: { type: string; source: string; destination: string }[];
-  networkMode: string;
+  env: string[] | null;
+  mounts: { type: string; source: string; destination: string }[] | null;
+  networks: Record<string, unknown> | null;
+  config: Record<string, unknown> | null;
+  restart_policy: Record<string, unknown> | null;
 }
 
 export interface ContainerStats {
   cpu_percent: number;
   memory_percent: number;
-  memory_usage: number;
-  memory_limit: number;
-  net_rx: number;
-  net_tx: number;
-  timestamp: string;
+  memory_usage_mb: number;
+  memory_limit_mb: number;
+  // Bug fix: nomes alinhados com DockerService.get_container_stats()
+  network_rx_mb: number;
+  network_tx_mb: number;
+  timestamp?: string;
 }
 
 export interface Project {
@@ -31,13 +37,20 @@ export interface Project {
   auto_deploy: boolean;
   last_deploy_status?: string;
   created_at: string;
+  updated_at?: string;
 }
 
+// Bug fix: adicionado webhook_secret (obrigatório pelo backend) e demais campos do ProjectBase
 export interface ProjectCreate {
   name: string;
   repo_url: string;
   branch?: string;
   auto_deploy?: boolean;
+  webhook_secret: string;
+  dockerfile_path?: string;
+  docker_compose_path?: string;
+  health_check_url?: string | null;
+  health_check_interval?: number;
 }
 
 export type ProjectUpdate = Partial<ProjectCreate>;
@@ -46,12 +59,16 @@ export interface Deployment {
   id: string;
   project_id: string;
   commit_sha: string;
-  commit_message: string;
-  author: string;
-  status: 'pending' | 'in_progress' | 'success' | 'failed' | 'rolled_back';
+  commit_message: string | null;
+  commit_author: string | null;
+  branch: string;
+  status: 'pending' | 'cloning' | 'building' | 'deploying' | 'health_check' | 'healthy' | 'failed' | 'rolled_back';
+  build_logs: string | null;
+  error_message: string | null;
+  previous_image_id: string | null;
+  duration_seconds: number | null;
   started_at: string;
-  finished_at?: string;
-  logs?: string;
+  finished_at: string | null;
 }
 
 export interface EnvironmentVariable {
@@ -61,18 +78,24 @@ export interface EnvironmentVariable {
   project_id?: string;
 }
 
+// Bug fix: campos alinhados com DockerService.get_system_info() e schema SystemInfo do backend
 export interface SystemInfo {
-  containers: number;
-  containers_running: number;
-  containers_stopped: number;
-  images: number;
-  mem_total: number;
-  ncpu: number;
-  server_version: string;
-  operating_system: string;
+  docker_version: string | null;
+  api_version: string | null;
+  os: string | null;
+  architecture: string | null;
+  cpus: number | null;
+  memory_total_mb: number | null;
+  containers_count: number | null;
+  containers_running: number | null;
+  containers_stopped: number | null;
+  containers_paused: number | null;
+  images_count: number | null;
+  volumes_count: number | null;
+  networks_count: number | null;
 }
 
 export interface WebSocketMessage {
   type: string;
-  payload: any;
+  payload: unknown;
 }
