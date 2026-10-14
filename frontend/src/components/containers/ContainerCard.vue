@@ -30,16 +30,16 @@ const navigate = () => router.push(`/containers/${props.container.id}`);
         <span class="flex items-center gap-1"><HardDrive class="w-3.5 h-3.5"/> --</span>
       </div>
       <div class="flex items-center gap-1.5" @click.stop>
-        <button v-if="container.state !== 'running'" @click="emit('action', 'start', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-success rounded bg-dock-surface hover:bg-dock-success/10 transition-colors" title="Start">
+        <button v-if="container.state !== 'running'" @click="emit('action', 'start', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-success rounded bg-dock-surface hover:bg-dock-success/10 transition-colors cursor-pointer" title="Iniciar">
           <Play class="w-4 h-4" />
         </button>
-        <button v-if="container.state === 'running'" @click="emit('action', 'stop', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-warning rounded bg-dock-surface hover:bg-dock-warning/10 transition-colors" title="Stop">
+        <button v-if="container.state === 'running'" @click="emit('action', 'stop', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-warning rounded bg-dock-surface hover:bg-dock-warning/10 transition-colors cursor-pointer" title="Parar">
           <Square class="w-4 h-4" />
         </button>
-        <button @click="emit('action', 'restart', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-accent rounded bg-dock-surface hover:bg-dock-accent/10 transition-colors" title="Restart">
+        <button @click="emit('action', 'restart', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-accent rounded bg-dock-surface hover:bg-dock-accent/10 transition-colors cursor-pointer" title="Reiniciar">
           <RotateCw class="w-4 h-4" />
         </button>
-        <button @click="emit('action', 'remove', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-error rounded bg-dock-surface hover:bg-dock-error/10 transition-colors ml-1" title="Remove">
+        <button @click="emit('action', 'remove', container.id)" class="p-1.5 text-dock-text-muted hover:text-dock-error rounded bg-dock-surface hover:bg-dock-error/10 transition-colors ml-1 cursor-pointer" title="Remover">
           <Trash2 class="w-4 h-4" />
         </button>
       </div>

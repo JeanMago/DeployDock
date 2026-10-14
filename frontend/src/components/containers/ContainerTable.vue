@@ -9,6 +9,25 @@ const emit = defineEmits<{ (e: 'action', type: string, id: string): void }>();
 const router = useRouter();
 
 const navigate = (id: string) => router.push(`/containers/${id}`);
+
+const formatPorts = (ports: Record<string, unknown> | null | undefined): string[] => {
+  if (!ports || typeof ports !== 'object') return [];
+  const result: string[] = [];
+  for (const [containerPort, bindings] of Object.entries(ports)) {
+    if (Array.isArray(bindings) && bindings.length > 0) {
+      for (const b of bindings) {
+        if (b && typeof b === 'object' && 'HostPort' in b) {
+          result.push(`${(b as Record<string, unknown>).HostPort}:${containerPort}`);
+        } else {
+          result.push(containerPort);
+        }
+      }
+    } else {
+      result.push(containerPort);
+    }
+  }
+  return result;
+};
 </script>
 
 <template>
@@ -17,30 +36,31 @@ const navigate = (id: string) => router.push(`/containers/${id}`);
       <table class="w-full text-left text-sm border-collapse">
         <thead>
           <tr class="border-b border-dock-border bg-dock-surface/50 text-dock-text-muted">
-            <th class="px-4 py-3 font-medium whitespace-nowrap">Name</th>
+            <th class="px-4 py-3 font-medium whitespace-nowrap">Nome</th>
             <th class="px-4 py-3 font-medium whitespace-nowrap">Status</th>
-            <th class="px-4 py-3 font-medium whitespace-nowrap">Image</th>
-            <th class="px-4 py-3 font-medium whitespace-nowrap">Ports</th>
-            <th class="px-4 py-3 font-medium whitespace-nowrap text-right">Actions</th>
+            <th class="px-4 py-3 font-medium whitespace-nowrap">Imagem</th>
+            <th class="px-4 py-3 font-medium whitespace-nowrap">Portas</th>
+            <th class="px-4 py-3 font-medium whitespace-nowrap text-right">Ações</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-dock-border">
           <tr v-for="c in containers" :key="c.id" @click="navigate(c.id)" class="hover:bg-dock-surface/50 transition-colors cursor-pointer group">
             <td class="px-4 py-3 font-medium text-dock-text">{{ c.name }}</td>
-            <td class="px-4 py-3"><StatusBadge :status="c.state" size="sm" /></td>
+            <td class="px-4 py-3"><StatusBadge :status="c.state || c.status" size="sm" /></td>
             <td class="px-4 py-3 font-mono text-xs text-dock-text-muted truncate max-w-[200px]" :title="c.image">{{ c.image }}</td>
             <td class="px-4 py-3 text-xs text-dock-text-dim">
-              <span v-for="p in c.ports.slice(0, 2)" :key="p.publicPort || p.privatePort" class="inline-block bg-dock-surface px-1.5 py-0.5 rounded border border-dock-border mr-1 mb-1">
-                {{ p.publicPort ? `${p.publicPort}:` : '' }}{{ p.privatePort }}
+              <span v-for="p in formatPorts(c.ports).slice(0, 2)" :key="p" class="inline-block bg-dock-surface px-1.5 py-0.5 rounded border border-dock-border mr-1 mb-1">
+                {{ p }}
               </span>
-              <span v-if="c.ports.length > 2" class="text-dock-text-dim text-xs">...</span>
+              <span v-if="formatPorts(c.ports).length > 2" class="text-dock-text-dim text-xs">...</span>
+              <span v-else-if="!formatPorts(c.ports).length" class="text-dock-text-dim/60">-</span>
             </td>
             <td class="px-4 py-3 text-right" @click.stop>
               <div class="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button v-if="c.state !== 'running'" @click="emit('action', 'start', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-success hover:bg-dock-surface rounded"><Play class="w-4 h-4"/></button>
-                <button v-if="c.state === 'running'" @click="emit('action', 'stop', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-warning hover:bg-dock-surface rounded"><Square class="w-4 h-4"/></button>
-                <button @click="emit('action', 'restart', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-accent hover:bg-dock-surface rounded"><RotateCw class="w-4 h-4"/></button>
-                <button @click="emit('action', 'remove', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-error hover:bg-dock-surface rounded"><Trash2 class="w-4 h-4"/></button>
+                <button v-if="c.state !== 'running'" @click="emit('action', 'start', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-success hover:bg-dock-surface rounded cursor-pointer" title="Iniciar"><Play class="w-4 h-4"/></button>
+                <button v-if="c.state === 'running'" @click="emit('action', 'stop', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-warning hover:bg-dock-surface rounded cursor-pointer" title="Parar"><Square class="w-4 h-4"/></button>
+                <button @click="emit('action', 'restart', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-accent hover:bg-dock-surface rounded cursor-pointer" title="Reiniciar"><RotateCw class="w-4 h-4"/></button>
+                <button @click="emit('action', 'remove', c.id)" class="p-1.5 text-dock-text-muted hover:text-dock-error hover:bg-dock-surface rounded cursor-pointer" title="Remover"><Trash2 class="w-4 h-4"/></button>
               </div>
             </td>
           </tr>

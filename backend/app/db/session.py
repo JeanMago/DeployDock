@@ -22,13 +22,18 @@ import app.models.deployment        # noqa: F401
 import app.models.environment       # noqa: F401
 
 # Engine assíncrona
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-)
+is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+engine_kwargs: dict = {"echo": False}
+if is_sqlite:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_pre_ping": True,
+    })
+
+engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 
 # Factory de sessões assíncronas
 async_session_factory = async_sessionmaker(
@@ -55,5 +60,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Cria todas as tabelas no banco de dados se não existirem."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    global engine, async_session_factory
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        if "postgresql" in settings.DATABASE_URL:
+            import logging
+            logger = logging.getLogger("deploydock")
+            logger.warning(
+                f"PostgreSQL indisponível ({e}). Alternando para SQLite local (deploydock.db)..."
+            )
+            engine = create_async_engine(
+                "sqlite+aiosqlite:///deploydock.db",
+                connect_args={"check_same_thread": False},
+            )
+            async_session_factory = async_sessionmaker(
+                bind=engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+                autoflush=False,
+            )
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        else:
+            raise

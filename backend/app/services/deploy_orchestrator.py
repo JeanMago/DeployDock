@@ -73,14 +73,22 @@ class DeployOrchestrator:
             repo_path = os.path.join(settings.REPOS_BASE_PATH, str(project.id))
 
             if os.path.exists(repo_path):
-                actual_sha = await self.git.pull_repo(repo_path, branch)
+                try:
+                    actual_sha = await self.git.pull_repo(repo_path, branch)
+                except Exception as e:
+                    logger.warning(f"Git pull ignorado ({e}). Prosseguindo com repositório local.")
             else:
                 actual_sha = await self.git.clone_repo(project.repo_url, repo_path, branch)
 
-            commit_info = await self.git.get_current_commit(repo_path)
-            deployment.commit_sha = commit_info["sha"]
-            deployment.commit_message = commit_info.get("message", "")
-            deployment.commit_author = commit_info.get("author", "")
+            try:
+                commit_info = await self.git.get_current_commit(repo_path)
+                deployment.commit_sha = commit_info.get("sha", commit_sha or "initial")
+                deployment.commit_message = commit_info.get("message", "Deploy inicial")
+                deployment.commit_author = commit_info.get("author", "DeployDock")
+            except Exception:
+                deployment.commit_sha = commit_sha or "initial"
+                deployment.commit_message = "Deploy manual"
+                deployment.commit_author = "DeployDock"
             await self.db.commit()
             await ws_manager.broadcast(deploy_topic, {
                 "status": "cloning",

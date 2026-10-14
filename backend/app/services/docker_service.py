@@ -20,10 +20,26 @@ class DockerService:
     """Wrapper assíncrono para o Docker SDK."""
 
     def __init__(self) -> None:
-        if settings.DOCKER_HOST:
-            self.client = docker.DockerClient(base_url=settings.DOCKER_HOST)
-        else:
-            self.client = docker.from_env()
+        self._client: docker.DockerClient | None = None
+        try:
+            if settings.DOCKER_HOST:
+                self._client = docker.DockerClient(base_url=settings.DOCKER_HOST)
+            else:
+                self._client = docker.from_env()
+        except Exception:
+            self._client = None
+
+    @property
+    def client(self) -> docker.DockerClient:
+        if self._client is None:
+            try:
+                if settings.DOCKER_HOST:
+                    self._client = docker.DockerClient(base_url=settings.DOCKER_HOST)
+                else:
+                    self._client = docker.from_env()
+            except Exception as e:
+                raise RuntimeError(f"Docker Engine indisponível ou não está em execução: {e}")
+        return self._client
 
     # ----------------------------------------------------------------
     # Contêineres — Listagem e Detalhes
@@ -31,20 +47,23 @@ class DockerService:
 
     async def list_containers(self, all: bool = True) -> list[dict[str, Any]]:
         """Lista todos os contêineres com informações resumidas."""
-        containers = await asyncio.to_thread(self.client.containers.list, all=all)
-        return [
-            {
-                "id": c.short_id,
-                "full_id": c.id,
-                "name": c.name,
-                "status": c.status,
-                "image": c.image.tags[0] if c.image.tags else c.image.short_id,
-                "ports": c.ports,
-                "created": c.attrs.get("Created"),
-                "state": c.attrs.get("State", {}).get("Status"),
-            }
-            for c in containers
-        ]
+        try:
+            containers = await asyncio.to_thread(self.client.containers.list, all=all)
+            return [
+                {
+                    "id": c.short_id,
+                    "full_id": c.id,
+                    "name": c.name,
+                    "status": c.status,
+                    "image": c.image.tags[0] if c.image.tags else c.image.short_id,
+                    "ports": c.ports,
+                    "created": c.attrs.get("Created"),
+                    "state": c.attrs.get("State", {}).get("Status"),
+                }
+                for c in containers
+            ]
+        except Exception:
+            return []
 
     async def get_container(self, container_id: str) -> dict[str, Any]:
         """Retorna detalhes completos de um contêiner."""
@@ -311,29 +330,35 @@ class DockerService:
 
     async def list_volumes(self) -> list[dict[str, Any]]:
         """Lista todos os volumes Docker."""
-        vols = await asyncio.to_thread(self.client.volumes.list)
-        return [
-            {
-                "name": v.name,
-                "driver": v.attrs.get("Driver"),
-                "mountpoint": v.attrs.get("Mountpoint"),
-                "created": v.attrs.get("CreatedAt"),
-            }
-            for v in vols
-        ]
+        try:
+            vols = await asyncio.to_thread(self.client.volumes.list)
+            return [
+                {
+                    "name": v.name,
+                    "driver": v.attrs.get("Driver"),
+                    "mountpoint": v.attrs.get("Mountpoint"),
+                    "created": v.attrs.get("CreatedAt"),
+                }
+                for v in vols
+            ]
+        except Exception:
+            return []
 
     async def list_networks(self) -> list[dict[str, Any]]:
         """Lista todas as redes Docker."""
-        nets = await asyncio.to_thread(self.client.networks.list)
-        return [
-            {
-                "id": n.short_id,
-                "name": n.name,
-                "driver": n.attrs.get("Driver"),
-                "scope": n.attrs.get("Scope"),
-            }
-            for n in nets
-        ]
+        try:
+            nets = await asyncio.to_thread(self.client.networks.list)
+            return [
+                {
+                    "id": n.short_id,
+                    "name": n.name,
+                    "driver": n.attrs.get("Driver"),
+                    "scope": n.attrs.get("Scope"),
+                }
+                for n in nets
+            ]
+        except Exception:
+            return []
 
     # ----------------------------------------------------------------
     # Sistema
@@ -341,23 +366,42 @@ class DockerService:
 
     async def get_system_info(self) -> dict[str, Any]:
         """Informações gerais do Docker Engine."""
-        info = await asyncio.to_thread(self.client.info)
-        version = await asyncio.to_thread(self.client.version)
-        return {
-            "docker_version": version.get("Version"),
-            "api_version": version.get("ApiVersion"),
-            "os": info.get("OperatingSystem"),
-            "architecture": info.get("Architecture"),
-            "cpus": info.get("NCPU"),
-            "memory_total_mb": round(info.get("MemTotal", 0) / (1024 * 1024), 2),
-            "containers_count": info.get("Containers"),
-            "containers_running": info.get("ContainersRunning"),
-            "containers_stopped": info.get("ContainersStopped"),
-            "containers_paused": info.get("ContainersPaused"),
-            "images_count": info.get("Images"),
-            "volumes_count": len(await self.list_volumes()),
-            "networks_count": len(await self.list_networks()),
-        }
+        try:
+            info = await asyncio.to_thread(self.client.info)
+            version = await asyncio.to_thread(self.client.version)
+            vols = await self.list_volumes()
+            nets = await self.list_networks()
+            return {
+                "docker_version": version.get("Version"),
+                "api_version": version.get("ApiVersion"),
+                "os": info.get("OperatingSystem"),
+                "architecture": info.get("Architecture"),
+                "cpus": info.get("NCPU"),
+                "memory_total_mb": round(info.get("MemTotal", 0) / (1024 * 1024), 2),
+                "containers_count": info.get("Containers"),
+                "containers_running": info.get("ContainersRunning"),
+                "containers_stopped": info.get("ContainersStopped"),
+                "containers_paused": info.get("ContainersPaused"),
+                "images_count": info.get("Images"),
+                "volumes_count": len(vols),
+                "networks_count": len(nets),
+            }
+        except Exception:
+            return {
+                "docker_version": None,
+                "api_version": None,
+                "os": "Docker Engine Offline",
+                "architecture": None,
+                "cpus": 0,
+                "memory_total_mb": 0,
+                "containers_count": 0,
+                "containers_running": 0,
+                "containers_stopped": 0,
+                "containers_paused": 0,
+                "images_count": 0,
+                "volumes_count": 0,
+                "networks_count": 0,
+            }
 
     async def prune_system(self) -> dict[str, Any]:
         """Remove contêineres, imagens, volumes e redes não utilizados."""

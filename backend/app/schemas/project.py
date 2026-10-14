@@ -5,17 +5,18 @@ from typing import Optional
 
 class ProjectBase(BaseModel):
     name: str
-    repo_url: str
+    repo_url: Optional[str] = None
     branch: str = "main"
-    webhook_secret: str
-    docker_compose_path: str = "docker-compose.yml"
-    dockerfile_path: str = "Dockerfile"
+    webhook_secret: Optional[str] = None
+    docker_compose_path: Optional[str] = "docker-compose.yml"
+    dockerfile_path: Optional[str] = "Dockerfile"
     auto_deploy: bool = True
     health_check_url: Optional[str] = None
     health_check_interval: int = 30
 
 class ProjectCreate(ProjectBase):
-    pass
+    template: Optional[str] = None  # 'fastapi' | 'express' | 'static' | 'custom'
+    dockerfile_content: Optional[str] = None
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None

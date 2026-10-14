@@ -38,6 +38,11 @@ const router = createRouter({
           path: 'settings',
           name: 'Settings',
           component: () => import('@/pages/SettingsPage.vue')
+        },
+        {
+          path: 'tutorial',
+          name: 'Tutorial',
+          component: () => import('@/pages/TutorialPage.vue')
         }
       ]
     }

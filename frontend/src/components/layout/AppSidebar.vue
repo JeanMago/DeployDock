@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router';
-import { LayoutDashboard, Box, FolderGit2, Rocket, Settings, ChevronLeft, Hexagon } from 'lucide-vue-next';
+import { LayoutDashboard, Box, FolderGit2, Rocket, Settings, ChevronLeft, Hexagon, BookOpen } from 'lucide-vue-next';
 
 defineProps<{ isOpen: boolean }>();
 defineEmits<{ (e: 'toggle'): void }>();
@@ -8,11 +8,12 @@ defineEmits<{ (e: 'toggle'): void }>();
 const route = useRoute();
 
 const navItems = [
-  { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'Containers', path: '/containers', icon: Box },
-  { name: 'Projects', path: '/projects', icon: FolderGit2 },
-  { name: 'Deployments', path: '/deployments', icon: Rocket },
-  { name: 'Settings', path: '/settings', icon: Settings },
+  { name: 'Painel', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Contêineres', path: '/containers', icon: Box },
+  { name: 'Projetos', path: '/projects', icon: FolderGit2 },
+  { name: 'Deploys', path: '/deployments', icon: Rocket },
+  { name: 'Tutorial', path: '/tutorial', icon: BookOpen },
+  { name: 'Configurações', path: '/settings', icon: Settings },
 ];
 </script>
 

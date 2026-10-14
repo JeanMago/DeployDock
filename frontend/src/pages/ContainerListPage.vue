@@ -32,9 +32,20 @@ const filtered = computed(() => {
 });
 
 const handleAction = async (action: string, id: string) => {
-  if (['stop','remove'].includes(action) && !confirm('Are you sure?')) return;
-  try { await (api.containers as any)[action](id); load(); }
-  catch(e) { alert(e); }
+  const actionNames: Record<string, string> = {
+    start: 'iniciar',
+    stop: 'parar',
+    restart: 'reiniciar',
+    remove: 'remover'
+  };
+  const label = actionNames[action] || action;
+  if (['stop','remove'].includes(action) && !confirm(`Deseja realmente ${label} este contêiner?`)) return;
+  try { 
+    await (api.containers as any)[action](id); 
+    load(); 
+  } catch(e) { 
+    alert('Erro ao executar ação: ' + e); 
+  }
 };
 </script>
 
@@ -44,28 +55,38 @@ const handleAction = async (action: string, id: string) => {
       <div class="flex items-center gap-3 glass-panel p-1 rounded-lg">
         <div class="relative w-64">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dock-text-dim" />
-          <input v-model="search" type="text" placeholder="Search containers..." class="w-full bg-transparent border-none focus:ring-0 pl-9 pr-4 py-1.5 text-sm text-dock-text placeholder-dock-text-dim outline-none" />
+          <input v-model="search" type="text" placeholder="Buscar contêineres..." class="w-full bg-transparent border-none focus:ring-0 pl-9 pr-4 py-1.5 text-sm text-dock-text placeholder-dock-text-dim outline-none" />
         </div>
         <div class="w-px h-5 bg-dock-border"></div>
         <select v-model="filter" class="bg-transparent border-none text-sm text-dock-text focus:ring-0 outline-none pr-4 cursor-pointer">
-          <option value="all" class="bg-dock-bg">All Status</option>
-          <option value="running" class="bg-dock-bg">Running</option>
-          <option value="exited" class="bg-dock-bg">Stopped</option>
+          <option value="all" class="bg-dock-bg">Todos os Status</option>
+          <option value="running" class="bg-dock-bg">Em Execução</option>
+          <option value="exited" class="bg-dock-bg">Parados</option>
         </select>
       </div>
 
       <div class="flex items-center gap-2">
-        <button @click="load" class="p-2 glass-panel hover:bg-dock-surface text-dock-text-muted hover:text-dock-text transition-colors"><RefreshCw class="w-4 h-4" :class="{'animate-spin': loading}" /></button>
+        <button @click="load" class="p-2 glass-panel hover:bg-dock-surface text-dock-text-muted hover:text-dock-text transition-colors" title="Atualizar">
+          <RefreshCw class="w-4 h-4" :class="{'animate-spin': loading}" />
+        </button>
         <div class="flex glass-panel p-1 rounded-lg">
-          <button @click="viewMode = 'grid'" class="p-1.5 rounded-md transition-colors" :class="viewMode === 'grid' ? 'bg-dock-surface text-dock-text' : 'text-dock-text-muted hover:text-dock-text'"><Grid class="w-4 h-4" /></button>
-          <button @click="viewMode = 'table'" class="p-1.5 rounded-md transition-colors" :class="viewMode === 'table' ? 'bg-dock-surface text-dock-text' : 'text-dock-text-muted hover:text-dock-text'"><List class="w-4 h-4" /></button>
+          <button @click="viewMode = 'grid'" class="p-1.5 rounded-md transition-colors" :class="viewMode === 'grid' ? 'bg-dock-surface text-dock-text' : 'text-dock-text-muted hover:text-dock-text'" title="Visualização em Grade">
+            <Grid class="w-4 h-4" />
+          </button>
+          <button @click="viewMode = 'table'" class="p-1.5 rounded-md transition-colors" :class="viewMode === 'table' ? 'bg-dock-surface text-dock-text' : 'text-dock-text-muted hover:text-dock-text'" title="Visualização em Tabela">
+            <List class="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
 
     <div v-if="loading" class="flex justify-center py-20"><LoadingSpinner /></div>
     <div v-else-if="!filtered.length">
-      <EmptyState :icon="Box" title="No containers found" description="Try adjusting your search or filter criteria." />
+      <EmptyState 
+        :icon="Box" 
+        title="Nenhum contêiner encontrado" 
+        description="Nenhum contêiner corresponde à busca ou o Docker não possui contêineres ativos no momento." 
+      />
     </div>
     <div v-else>
       <div v-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

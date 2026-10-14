@@ -40,17 +40,18 @@ export interface Project {
   updated_at?: string;
 }
 
-// Bug fix: adicionado webhook_secret (obrigatório pelo backend) e demais campos do ProjectBase
 export interface ProjectCreate {
   name: string;
-  repo_url: string;
+  repo_url?: string;
   branch?: string;
   auto_deploy?: boolean;
-  webhook_secret: string;
+  webhook_secret?: string;
   dockerfile_path?: string;
   docker_compose_path?: string;
   health_check_url?: string | null;
   health_check_interval?: number;
+  template?: 'fastapi' | 'express' | 'static' | 'custom';
+  dockerfile_content?: string;
 }
 
 export type ProjectUpdate = Partial<ProjectCreate>;

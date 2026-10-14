@@ -78,10 +78,10 @@ const clearLogs = () => term?.clear();
     <div class="flex items-center justify-between px-4 py-2 bg-dock-surface border-b border-dock-border">
       <div class="flex items-center gap-2">
         <span class="w-2 h-2 rounded-full" :class="status === 'open' ? 'bg-dock-success shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-dock-error'"></span>
-        <span class="text-xs font-mono text-dock-text-muted">Terminal Logs</span>
+        <span class="text-xs font-mono text-dock-text-muted">Logs do Terminal</span>
       </div>
       <div class="flex gap-2">
-        <button @click="clearLogs" class="p-1.5 text-dock-text-muted hover:text-dock-text rounded bg-dock-bg border border-dock-border hover:border-dock-border-light transition-colors" title="Clear">
+        <button @click="clearLogs" class="p-1.5 text-dock-text-muted hover:text-dock-text rounded bg-dock-bg border border-dock-border hover:border-dock-border-light transition-colors cursor-pointer" title="Limpar Logs">
           <Trash2 class="w-3.5 h-3.5" />
         </button>
       </div>

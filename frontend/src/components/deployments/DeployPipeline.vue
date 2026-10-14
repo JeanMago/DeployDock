@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, X, Loader2 } from 'lucide-vue-next';
-const steps = ['Webhook', 'Clone', 'Build', 'Deploy', 'Health Check'];
+const steps = ['Webhook', 'Clonar', 'Compilar', 'Implantar', 'Saúde'];
 defineProps<{ currentStep: number, status: string }>();
 </script>
 
