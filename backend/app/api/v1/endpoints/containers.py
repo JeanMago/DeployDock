@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Any
 from app.services.docker_service import DockerService
-from app.api.deps import get_docker_service
+from app.api.deps import get_docker_service, require_role
 from app.schemas.container import ContainerSummary, ContainerDetail
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_role("admin", "developer"))])
 
 @router.get("", response_model=List[ContainerSummary])
 async def list_containers(all: bool = True, docker: DockerService = Depends(get_docker_service)):

@@ -1,7 +1,8 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import containers, projects, deployments, webhooks, system, ws
+from app.api.v1.endpoints import containers, projects, deployments, webhooks, system, ws, auth
 
 api_router = APIRouter()
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(containers.router, prefix="/containers", tags=["containers"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(deployments.router, prefix="/deployments", tags=["deployments"])

@@ -49,8 +49,21 @@ class DockerService:
         """Lista todos os contêineres com informações resumidas."""
         try:
             containers = await asyncio.to_thread(self.client.containers.list, all=all)
-            return [
-                {
+            result = []
+            for c in containers:
+                labels = c.labels or {}
+                host = labels.get("deploydock.host")
+                pub_url = None
+                if host:
+                    scheme = "https" if settings.APPS_TLS_ENABLED else "http"
+                    port_suffix = ""
+                    if settings.APPS_TLS_ENABLED and settings.PROXY_HTTPS_PORT != 443:
+                        port_suffix = f":{settings.PROXY_HTTPS_PORT}"
+                    elif not settings.APPS_TLS_ENABLED and settings.PROXY_HTTP_PORT != 80:
+                        port_suffix = f":{settings.PROXY_HTTP_PORT}"
+                    pub_url = f"{scheme}://{host}{port_suffix}"
+
+                result.append({
                     "id": c.short_id,
                     "full_id": c.id,
                     "name": c.name,
@@ -59,9 +72,10 @@ class DockerService:
                     "ports": c.ports,
                     "created": c.attrs.get("Created"),
                     "state": c.attrs.get("State", {}).get("Status"),
-                }
-                for c in containers
-            ]
+                    "labels": labels,
+                    "public_url": pub_url,
+                })
+            return result
         except Exception:
             return []
 
@@ -86,6 +100,31 @@ class DockerService:
             "config": c.attrs.get("Config", {}),
             "restart_policy": c.attrs.get("HostConfig", {}).get("RestartPolicy", {}),
         }
+
+    # ----------------------------------------------------------------
+    # Roteamento (proxy reverso)
+    # ----------------------------------------------------------------
+
+    def ensure_network(self, name: str) -> None:
+        """Garante que a rede Docker compartilhada com o proxy exista (síncrono)."""
+        try:
+            self.client.networks.get(name)
+        except NotFound:
+            self.client.networks.create(name, driver="bridge")
+
+    def get_image_exposed_ports(self, image: str) -> list[int]:
+        """Portas TCP declaradas via EXPOSE na imagem (síncrono)."""
+        try:
+            img = self.client.images.get(image)
+        except ImageNotFound:
+            return []
+        exposed = (img.attrs.get("Config") or {}).get("ExposedPorts") or {}
+        ports: list[int] = []
+        for spec in exposed:
+            port, _, proto = spec.partition("/")
+            if (proto or "tcp") == "tcp" and port.isdigit():
+                ports.append(int(port))
+        return sorted(ports)
 
     # ----------------------------------------------------------------
     # Contêineres — Ciclo de Vida

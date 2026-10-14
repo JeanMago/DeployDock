@@ -42,8 +42,10 @@ frontend/.vite/
 Thumbs.db
 desktop.ini
 
-# --- Docker ---
+# --- Docker & Cloned Repos ---
 repos_data/
+repos/
+backend/repos/
 
 # --- Logs ---
 *.log

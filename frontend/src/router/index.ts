@@ -1,9 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import MainLayout from '@/components/layout/MainLayout.vue';
+import { useAuth } from '@/composables/useAuth';
 
 const router = createRouter({
   history: createWebHistory('/'),
   routes: [
+    {
+      path: '/login',
+      name: 'Login',
+      component: () => import('@/pages/LoginPage.vue'),
+      meta: { public: true }
+    },
     {
       path: '/',
       component: MainLayout,
@@ -17,12 +24,14 @@ const router = createRouter({
         {
           path: 'containers',
           name: 'Containers',
-          component: () => import('@/pages/ContainerListPage.vue')
+          component: () => import('@/pages/ContainerListPage.vue'),
+          meta: { requiresDockerAccess: true }
         },
         {
           path: 'containers/:id',
           name: 'ContainerDetail',
-          component: () => import('@/pages/ContainerDetailPage.vue')
+          component: () => import('@/pages/ContainerDetailPage.vue'),
+          meta: { requiresDockerAccess: true }
         },
         {
           path: 'projects',
@@ -37,7 +46,8 @@ const router = createRouter({
         {
           path: 'settings',
           name: 'Settings',
-          component: () => import('@/pages/SettingsPage.vue')
+          component: () => import('@/pages/SettingsPage.vue'),
+          meta: { requiresAdmin: true }
         },
         {
           path: 'tutorial',
@@ -47,6 +57,38 @@ const router = createRouter({
       ]
     }
   ]
+});
+
+// Guard de navegação para checagem de autenticação e permissões (RBAC)
+router.beforeEach((to, _from, next) => {
+  const { isAuthenticated, canAccessDocker, isAdmin } = useAuth();
+
+  // 1. Rota pública (ex: login)
+  if (to.meta.public) {
+    if (isAuthenticated.value && to.path === '/login') {
+      return next('/dashboard');
+    }
+    return next();
+  }
+
+  // 2. Não autenticado -> redireciona para login com parâmetro de retorno
+  if (!isAuthenticated.value) {
+    return next({ path: '/login', query: { redirect: to.fullPath } });
+  }
+
+  // 3. Exige permissão para acessar o Docker (admin ou developer)
+  if (to.meta.requiresDockerAccess && !canAccessDocker.value) {
+    alert('Acesso negado: você precisa de permissão de Administrador ou Desenvolvedor para acessar o Docker.');
+    return next('/dashboard');
+  }
+
+  // 4. Exige permissão de administrador
+  if (to.meta.requiresAdmin && !isAdmin.value) {
+    alert('Acesso negado: área restrita a Administradores do sistema.');
+    return next('/dashboard');
+  }
+
+  next();
 });
 
 export default router;

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { Bell, Menu } from 'lucide-vue-next';
+import { Bell, Menu, LogOut } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { SystemInfo } from '@/services/types';
+import { useAuth } from '@/composables/useAuth';
+
+const { currentUser, logout } = useAuth();
 
 defineEmits<{ (e: 'toggle-sidebar'): void }>();
 const route = useRoute();
@@ -75,6 +78,25 @@ onUnmounted(() => {
         <Bell class="w-5 h-5" />
         <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-dock-accent rounded-full border-2 border-dock-bg"></span>
       </button>
+
+      <!-- Usuário Logado e Logout -->
+      <div v-if="currentUser" class="flex items-center gap-2 pl-2 border-l border-dock-border">
+        <div class="hidden sm:flex flex-col text-right">
+          <span class="text-xs font-semibold text-dock-text leading-tight">{{ currentUser.username }}</span>
+          <span class="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded-full self-end mt-0.5"
+            :class="currentUser.role === 'admin' ? 'bg-dock-accent/15 text-dock-accent border border-dock-accent/30' : 'bg-dock-surface text-dock-text-dim border border-dock-border'"
+          >
+            {{ currentUser.role }}
+          </span>
+        </div>
+        <button
+          @click="logout"
+          class="p-2 text-dock-text-muted hover:text-dock-error hover:bg-dock-error/10 rounded-lg transition-colors cursor-pointer"
+          title="Encerrar Sessão (Sair)"
+        >
+          <LogOut class="w-4 h-4" />
+        </button>
+      </div>
     </div>
   </header>
 </template>

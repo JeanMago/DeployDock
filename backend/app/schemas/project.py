@@ -1,7 +1,26 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 from datetime import datetime
 from typing import Optional
+
+from app.core.routing import normalize_domain, normalize_subdomain
+
+
+class RoutingFieldsMixin(BaseModel):
+    """Validação compartilhada dos campos de URL pública."""
+
+    @field_validator("subdomain", mode="before", check_fields=False)
+    @classmethod
+    def _validate_subdomain(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return normalize_subdomain(v)
+
+    @field_validator("custom_domain", mode="before", check_fields=False)
+    @classmethod
+    def _validate_custom_domain(cls, v):
+        return normalize_domain(v) if isinstance(v, str) else v
+
 
 class ProjectBase(BaseModel):
     name: str
@@ -13,12 +32,15 @@ class ProjectBase(BaseModel):
     auto_deploy: bool = True
     health_check_url: Optional[str] = None
     health_check_interval: int = 30
+    subdomain: Optional[str] = None
+    custom_domain: Optional[str] = None
+    container_port: Optional[int] = Field(default=None, ge=1, le=65535)
 
-class ProjectCreate(ProjectBase):
+class ProjectCreate(RoutingFieldsMixin, ProjectBase):
     template: Optional[str] = None  # 'fastapi' | 'express' | 'static' | 'custom'
     dockerfile_content: Optional[str] = None
 
-class ProjectUpdate(BaseModel):
+class ProjectUpdate(RoutingFieldsMixin, BaseModel):
     name: Optional[str] = None
     repo_url: Optional[str] = None
     branch: Optional[str] = None
@@ -28,9 +50,14 @@ class ProjectUpdate(BaseModel):
     auto_deploy: Optional[bool] = None
     health_check_url: Optional[str] = None
     health_check_interval: Optional[int] = None
+    subdomain: Optional[str] = None
+    custom_domain: Optional[str] = None
+    container_port: Optional[int] = Field(default=None, ge=1, le=65535)
 
 class ProjectRead(ProjectBase):
     id: uuid.UUID
+    public_host: str
+    public_url: str
     created_at: datetime
     updated_at: datetime
     
@@ -42,5 +69,18 @@ class ProjectList(BaseModel):
     repo_url: str
     branch: str
     auto_deploy: bool
+    subdomain: Optional[str] = None
+    custom_domain: Optional[str] = None
+    container_port: Optional[int] = None
+    public_host: str
+    public_url: str
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class RoutingConfig(BaseModel):
+    """Configuração de URLs exposta ao frontend (pré-visualização dos links)."""
+    base_domain: str
+    tls_enabled: bool
+    scheme: str
+    port_suffix: str

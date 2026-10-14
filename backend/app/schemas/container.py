@@ -13,6 +13,8 @@ class ContainerSummary(BaseModel):
     created: Optional[str] = None
     # state pode ser None para containers em estados intermediários
     state: Optional[str] = None
+    labels: Optional[Dict[str, str]] = None
+    public_url: Optional[str] = None
 
 
 class ContainerDetail(ContainerSummary):

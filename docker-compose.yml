@@ -39,8 +39,14 @@ services:
       - REPOS_BASE_PATH=/app/repos
       - HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-30}
       - HEALTH_CHECK_RETRIES=${HEALTH_CHECK_RETRIES:-3}
+      - APPS_BASE_DOMAIN=${APPS_BASE_DOMAIN:-localhost}
+      - APPS_TLS_ENABLED=${APPS_TLS_ENABLED:-false}
+      - PROXY_HTTP_PORT=${PROXY_HTTP_PORT:-80}
+      - PROXY_HTTPS_PORT=${PROXY_HTTPS_PORT:-443}
+      - APPS_NETWORK=${APPS_NETWORK:-deploydock-apps}
     networks:
       - deploydock-net
+      - deploydock-apps
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
       interval: 30s
@@ -58,11 +64,18 @@ services:
     container_name: deploydock-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - backend
     networks:
       - deploydock-net
+      - deploydock-apps
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=deploydock-apps"
+      - "traefik.http.routers.deploydock.rule=Host(`${DEPLOYDOCK_HOST:-localhost}`)"
+      - "traefik.http.routers.deploydock.entrypoints=web"
+      - "traefik.http.services.deploydock.loadbalancer.server.port=80"
 
   # -------------------------------------------
   # Database - PostgreSQL 16
@@ -86,6 +99,33 @@ services:
       retries: 5
       start_period: 10s
 
+  # -------------------------------------------
+  # Proxy Reverso Dinâmico - Traefik
+  # -------------------------------------------
+  # Roteia automaticamente cada projeto para sua URL (ex: meusite.localhost ou meusite.seudominio.com)
+  # Em produção com APPS_TLS_ENABLED=true, emite certificados SSL/TLS Let's Encrypt automaticamente
+  traefik:
+    image: traefik:v3.0
+    container_name: deploydock-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/letsencrypt
+    networks:
+      - deploydock-apps
+
 # -------------------------------------------
 # Named Volumes
 # -------------------------------------------
@@ -94,10 +134,15 @@ volumes:
     driver: local
   repos_data:
     driver: local
+  traefik_certs:
+    driver: local
 
 # -------------------------------------------
 # Networks
 # -------------------------------------------
 networks:
   deploydock-net:
+    driver: bridge
+  deploydock-apps:
+    name: deploydock-apps
     driver: bridge

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from app.services.docker_service import DockerService
-from app.api.deps import get_docker_service
+from app.api.deps import get_docker_service, require_role
 from app.schemas.webhook import SystemInfo
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_role("admin", "developer"))])
 
 @router.get("/info", response_model=SystemInfo)
 async def system_info(docker: DockerService = Depends(get_docker_service)):

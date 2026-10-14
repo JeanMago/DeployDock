@@ -7,19 +7,23 @@ import ContainerTable from '@/components/containers/ContainerTable.vue';
 import CreateProjectModal from '@/components/projects/CreateProjectModal.vue';
 import { api } from '@/services/api';
 import type { SystemInfo, Container } from '@/services/types';
+import { useAuth } from '@/composables/useAuth';
 
 const router = useRouter();
+const { canAccessDocker } = useAuth();
 const sysInfo = ref<SystemInfo | null>(null);
 const containers = ref<Container[]>([]);
 const showCreateModal = ref(false);
 
 const load = async () => {
-  try {
-    sysInfo.value = await api.system.info();
-    const allC = await api.containers.list();
-    containers.value = allC.slice(0, 5); // top 5 recentes
-  } catch (e) {
-    console.error(e);
+  if (canAccessDocker.value) {
+    try {
+      sysInfo.value = await api.system.info();
+      const allC = await api.containers.list();
+      containers.value = allC.slice(0, 5); // top 5 recentes
+    } catch (e) {
+      console.error(e);
+    }
   }
 };
 
@@ -63,7 +67,7 @@ const handleProjectCreated = () => {
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-2 space-y-4">
+      <div v-if="canAccessDocker" class="lg:col-span-2 space-y-4">
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-lg font-semibold text-dock-text">Contêineres Recentes</h2>
@@ -73,6 +77,16 @@ const handleProjectCreated = () => {
         </div>
         <ContainerTable :containers="containers" @action="handleContainerAction" />
       </div>
+      <div v-else class="lg:col-span-2 glass-panel p-8 text-center flex flex-col items-center justify-center">
+        <div class="p-3 bg-dock-surface rounded-xl border border-dock-border mb-3 text-dock-accent">
+          <Box class="w-8 h-8" />
+        </div>
+        <h3 class="text-base font-semibold text-dock-text">Gerenciamento Docker Restrito</h3>
+        <p class="text-xs text-dock-text-dim max-w-md mt-1">
+          Seu perfil possui permissão somente de leitura de projetos e deploys. Para visualizar e interagir com os contêineres Docker, solicite a um administrador o papel de <strong>developer</strong> ou <strong>admin</strong>.
+        </p>
+      </div>
+
       <div class="space-y-4">
         <h2 class="text-lg font-semibold text-dock-text">Ações Rápidas</h2>
         <div class="glass-panel p-4 space-y-2">

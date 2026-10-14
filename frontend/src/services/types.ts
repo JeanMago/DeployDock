@@ -8,6 +8,8 @@ export interface Container {
   state: string | null;
   ports: Record<string, unknown> | null;
   created: string | null;
+  labels?: Record<string, string> | null;
+  public_url?: string | null;
 }
 
 export interface ContainerDetail extends Container {
@@ -35,6 +37,11 @@ export interface Project {
   repo_url: string;
   branch: string;
   auto_deploy: boolean;
+  subdomain?: string | null;
+  custom_domain?: string | null;
+  container_port?: number | null;
+  public_host: string;
+  public_url: string;
   last_deploy_status?: string;
   created_at: string;
   updated_at?: string;
@@ -50,8 +57,18 @@ export interface ProjectCreate {
   docker_compose_path?: string;
   health_check_url?: string | null;
   health_check_interval?: number;
+  subdomain?: string | null;
+  custom_domain?: string | null;
+  container_port?: number | null;
   template?: 'fastapi' | 'express' | 'static' | 'custom';
   dockerfile_content?: string;
+}
+
+export interface RoutingConfig {
+  base_domain: string;
+  tls_enabled: boolean;
+  scheme: string;
+  port_suffix: string;
 }
 
 export type ProjectUpdate = Partial<ProjectCreate>;
@@ -99,4 +116,19 @@ export interface SystemInfo {
 export interface WebSocketMessage {
   type: string;
   payload: unknown;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'developer' | 'viewer';
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
 }

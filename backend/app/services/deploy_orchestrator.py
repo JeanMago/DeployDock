@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.routing import build_traefik_labels
 from app.models.deployment import Deployment
 from app.models.project import Project
 from app.services.docker_service import DockerService
@@ -102,6 +103,28 @@ class DeployOrchestrator:
             await ws_manager.broadcast(deploy_topic, {"status": "building", "step": 2})
             logger.info(f"[Deploy {deployment.id}] Construindo imagem...")
 
+            # Verificar se o Dockerfile existe no repositório
+            dockerfile_rel_path = project.dockerfile_path or "Dockerfile"
+            dockerfile_full_path = os.path.join(repo_path, dockerfile_rel_path)
+            if not os.path.exists(dockerfile_full_path):
+                # Auto-detecção de site estático (index.html presente)
+                if os.path.exists(os.path.join(repo_path, "index.html")):
+                    logger.info(
+                        f"Nenhum {dockerfile_rel_path} encontrado em {repo_path}. "
+                        "Detectado index.html: gerando Dockerfile Nginx automaticamente."
+                    )
+                    with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+                        f.write(
+                            "FROM nginx:alpine\n"
+                            "COPY . /usr/share/nginx/html\n"
+                            "EXPOSE 80\n"
+                            "CMD [\"nginx\", \"-g\", \"daemon off;\"]\n"
+                        )
+                else:
+                    raise RuntimeError(
+                        f"Arquivo '{dockerfile_rel_path}' não foi encontrado na raiz do repositório."
+                    )
+
             image_tag = f"deploydock-{project.name.lower()}:{deployment.commit_sha[:8]}"
             build_logs: list[str] = []
 
@@ -116,7 +139,7 @@ class DeployOrchestrator:
                     for line in self.docker.build_image(
                         path=repo_path,
                         tag=image_tag,
-                        dockerfile=project.dockerfile_path,
+                        dockerfile=dockerfile_rel_path,
                     ):
                         loop.call_soon_threadsafe(log_queue.put_nowait, line)
                     loop.call_soon_threadsafe(log_queue.put_nowait, None)
@@ -158,15 +181,12 @@ class DeployOrchestrator:
             except (ValueError, Exception):
                 logger.info(f"[Deploy {deployment.id}] Nenhum contêiner anterior encontrado.")
 
-            # Iniciar novo contêiner
-            new_container = await asyncio.to_thread(
-                self.docker.client.containers.run,
-                image_tag,
-                name=container_name,
-                detach=True,
-                restart_policy={"Name": "unless-stopped"},
+            # Iniciar novo contêiner (com labels de roteamento do proxy reverso)
+            new_container = await self._run_app_container(project, image_tag, container_name)
+            logger.info(
+                f"[Deploy {deployment.id}] Novo contêiner iniciado: {new_container.short_id} "
+                f"→ {project.public_url}"
             )
-            logger.info(f"[Deploy {deployment.id}] Novo contêiner iniciado: {new_container.short_id}")
 
             # ── Etapa 4: Health Check ──
             if project.health_check_url:
@@ -271,16 +291,54 @@ class DeployOrchestrator:
             pass
 
         # Iniciar contêiner com imagem anterior
-        await asyncio.to_thread(
-            self.docker.client.containers.run,
-            previous_image,
-            name=container_name,
-            detach=True,
-            restart_policy={"Name": "unless-stopped"},
-        )
+        await self._run_app_container(project, previous_image, container_name)
 
         await ws_manager.broadcast(topic, {"status": "rolled_back"})
         logger.info(f"[Rollback] ✅ Rollback concluído com sucesso.")
+
+    async def _run_app_container(self, project: Project, image: str, container_name: str):
+        """
+        Inicia o contêiner da aplicação já registrado no proxy reverso (Traefik):
+        conectado à rede compartilhada e com labels de roteamento para o host público.
+        `publish_all_ports` continua ativo para acesso direto via porta do host.
+        """
+        def _run():
+            self.docker.ensure_network(settings.APPS_NETWORK)
+            port = project.container_port
+            if not port:
+                exposed = self.docker.get_image_exposed_ports(image)
+                port = exposed[0] if exposed else 80
+            labels = build_traefik_labels(str(project.id), project.public_host, port)
+            return self.docker.client.containers.run(
+                image,
+                name=container_name,
+                detach=True,
+                restart_policy={"Name": "unless-stopped"},
+                publish_all_ports=True,
+                network=settings.APPS_NETWORK,
+                labels=labels,
+            )
+
+        return await asyncio.to_thread(_run)
+
+    async def apply_routing(self, project: Project) -> bool:
+        """
+        Reaplica a URL pública de um projeto já implantado (após alterar subdomínio,
+        domínio ou porta) recriando o contêiner com a mesma imagem e novas labels.
+        Retorna False se o projeto ainda não possui contêiner.
+        """
+        container_name = f"deploydock_{project.name.lower()}"
+        try:
+            current = await asyncio.to_thread(self.docker.client.containers.get, container_name)
+        except Exception:
+            return False
+
+        image = current.image.id
+        await self.docker.stop_container(container_name, timeout=10)
+        await self.docker.remove_container(container_name, force=True)
+        await self._run_app_container(project, image, container_name)
+        logger.info(f"[Routing] {project.name} agora disponível em {project.public_url}")
+        return True
 
     async def _run_health_check(self, url: str, retries: int, timeout: int) -> bool:
         """

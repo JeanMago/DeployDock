@@ -1,20 +1,37 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { LayoutDashboard, Box, FolderGit2, Rocket, Settings, ChevronLeft, Hexagon, BookOpen } from 'lucide-vue-next';
+import { useAuth } from '@/composables/useAuth';
 
 defineProps<{ isOpen: boolean }>();
 defineEmits<{ (e: 'toggle'): void }>();
 
 const route = useRoute();
+const { canAccessDocker, isAdmin } = useAuth();
 
-const navItems = [
-  { name: 'Painel', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'Contêineres', path: '/containers', icon: Box },
-  { name: 'Projetos', path: '/projects', icon: FolderGit2 },
-  { name: 'Deploys', path: '/deployments', icon: Rocket },
-  { name: 'Tutorial', path: '/tutorial', icon: BookOpen },
-  { name: 'Configurações', path: '/settings', icon: Settings },
-];
+const navItems = computed(() => {
+  const items = [
+    { name: 'Painel', path: '/dashboard', icon: LayoutDashboard },
+  ];
+
+  // Contêineres exige permissão para acessar o Docker (admin ou developer)
+  if (canAccessDocker.value) {
+    items.push({ name: 'Contêineres', path: '/containers', icon: Box });
+  }
+
+  items.push(
+    { name: 'Projetos', path: '/projects', icon: FolderGit2 },
+    { name: 'Deploys', path: '/deployments', icon: Rocket },
+    { name: 'Tutorial', path: '/tutorial', icon: BookOpen },
+  );
+
+  if (isAdmin.value) {
+    items.push({ name: 'Configurações', path: '/settings', icon: Settings });
+  }
+
+  return items;
+});
 </script>
 
 <template>

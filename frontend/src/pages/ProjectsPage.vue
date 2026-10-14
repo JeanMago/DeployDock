@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Plus, Github, Rocket, Trash2, FolderGit2 } from 'lucide-vue-next';
+import { Plus, Github, Rocket, Trash2, FolderGit2, ExternalLink, Globe, Settings2 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { Project } from '@/services/types';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import CreateProjectModal from '@/components/projects/CreateProjectModal.vue';
+import EditRoutingModal from '@/components/projects/EditRoutingModal.vue';
 
 const projects = ref<Project[]>([]);
 const loading = ref(true);
 const showCreateModal = ref(false);
+const editingProject = ref<Project | null>(null);
 
 const load = async () => {
   loading.value = true;
@@ -48,6 +50,11 @@ const handleProjectCreated = () => {
   showCreateModal.value = false;
   load();
 };
+
+const handleProjectUpdated = () => {
+  editingProject.value = null;
+  load();
+};
 </script>
 
 <template>
@@ -55,7 +62,7 @@ const handleProjectCreated = () => {
     <div class="flex justify-between items-center">
       <div>
         <h2 class="text-xl font-bold text-dock-text">Projetos GitOps</h2>
-        <p class="text-xs text-dock-text-dim mt-0.5">Gerencie seus repositórios e pipelines de entrega contínua</p>
+        <p class="text-xs text-dock-text-dim mt-0.5">Gerencie seus repositórios, URLs públicas e pipelines de entrega contínua</p>
       </div>
       <button 
         @click="showCreateModal = true"
@@ -84,7 +91,7 @@ const handleProjectCreated = () => {
     </div>
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div v-for="p in projects" :key="p.id" class="glass-panel p-5 flex flex-col group hover:border-dock-border-light transition-all">
-        <div class="flex justify-between items-start mb-4">
+        <div class="flex justify-between items-start mb-3">
           <div class="min-w-0 flex-1 pr-2">
             <h3 class="font-bold text-lg text-dock-text truncate" :title="p.name">{{ p.name }}</h3>
             <div class="flex items-center gap-1.5 text-xs text-dock-text-muted mt-1 truncate" :title="p.repo_url">
@@ -94,6 +101,40 @@ const handleProjectCreated = () => {
             </div>
           </div>
           <StatusBadge :status="p.last_deploy_status || 'pendente'" size="sm" />
+        </div>
+
+        <!-- Link Rápido para a Página Criada -->
+        <div class="my-2.5 p-2.5 rounded-lg bg-dock-surface/60 border border-dock-border/80 flex items-center justify-between gap-2">
+          <div class="min-w-0 flex items-center gap-2 flex-1">
+            <Globe class="w-4 h-4 text-dock-accent shrink-0" />
+            <a 
+              :href="p.public_url" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="text-xs font-mono text-dock-accent hover:underline truncate"
+              :title="'Abrir ' + p.public_url"
+            >
+              {{ p.public_url }}
+            </a>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <a 
+              :href="p.public_url" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="p-1 text-dock-text-muted hover:text-dock-accent rounded hover:bg-dock-surface transition-colors"
+              title="Abrir página no navegador"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+            </a>
+            <button 
+              @click="editingProject = p"
+              class="p-1 text-dock-text-muted hover:text-dock-accent rounded hover:bg-dock-surface transition-colors"
+              title="Editar URL / Subdomínio da Aplicação"
+            >
+              <Settings2 class="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
         
         <div class="mt-auto pt-4 border-t border-dock-border flex items-center justify-between">
@@ -125,6 +166,14 @@ const handleProjectCreated = () => {
       v-if="showCreateModal" 
       @close="showCreateModal = false" 
       @created="handleProjectCreated" 
+    />
+
+    <!-- Modal de Edição de Roteamento / URL -->
+    <EditRoutingModal
+      v-if="editingProject"
+      :project="editingProject"
+      @close="editingProject = null"
+      @updated="handleProjectUpdated"
     />
   </div>
 </template>

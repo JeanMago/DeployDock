@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { Play, Square, RotateCw, Trash2 } from 'lucide-vue-next';
+import { Play, Square, RotateCw, Trash2, ExternalLink } from 'lucide-vue-next';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import type { Container } from '@/services/types';
 
@@ -45,7 +45,22 @@ const formatPorts = (ports: Record<string, unknown> | null | undefined): string[
         </thead>
         <tbody class="divide-y divide-dock-border">
           <tr v-for="c in containers" :key="c.id" @click="navigate(c.id)" class="hover:bg-dock-surface/50 transition-colors cursor-pointer group">
-            <td class="px-4 py-3 font-medium text-dock-text">{{ c.name }}</td>
+            <td class="px-4 py-3 font-medium text-dock-text">
+              <div class="flex items-center gap-2">
+                <span>{{ c.name }}</span>
+                <a
+                  v-if="c.public_url"
+                  :href="c.public_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                  class="inline-flex items-center gap-1 text-[11px] font-mono text-dock-accent hover:underline bg-dock-accent/10 px-1.5 py-0.5 rounded border border-dock-accent/20"
+                  :title="'Abrir URL pública: ' + c.public_url"
+                >
+                  abrir <ExternalLink class="w-3 h-3" />
+                </a>
+              </div>
+            </td>
             <td class="px-4 py-3"><StatusBadge :status="c.state || c.status" size="sm" /></td>
             <td class="px-4 py-3 font-mono text-xs text-dock-text-muted truncate max-w-[200px]" :title="c.image">{{ c.image }}</td>
             <td class="px-4 py-3 text-xs text-dock-text-dim">

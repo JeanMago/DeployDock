@@ -16,6 +16,8 @@ const selectedTemplate = ref<'static' | 'fastapi' | 'express' | 'custom'>('stati
 
 const form = ref({
   name: '',
+  subdomain: '',
+  custom_domain: '',
   repo_url: '',
   branch: 'main',
   dockerfile_path: 'Dockerfile',
@@ -105,6 +107,8 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
   try {
     const payload: ProjectCreate = {
       name: form.value.name.trim(),
+      subdomain: form.value.subdomain.trim() || undefined,
+      custom_domain: form.value.custom_domain.trim() || undefined,
       branch: form.value.branch.trim() || 'main',
       dockerfile_path: form.value.dockerfile_path || 'Dockerfile',
       docker_compose_path: form.value.docker_compose_path || 'docker-compose.yml',
@@ -219,6 +223,27 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             placeholder="Ex: meu-app-web, api-node, sistema-loja"
             class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2.5 text-sm text-dock-text placeholder-dock-text-dim outline-none transition-colors"
           />
+        </div>
+
+        <!-- URL Pública / Subdomínio -->
+        <div class="p-3.5 rounded-xl bg-dock-surface/40 border border-dock-border space-y-2">
+          <label class="block text-xs font-medium text-dock-text">
+            URL Rápida da Aplicação (Subdomínio)
+          </label>
+          <div class="flex items-center">
+            <input
+              v-model="form.subdomain"
+              type="text"
+              :placeholder="(form.name ? form.name.toLowerCase().replace(/[^a-z0-9]/g, '-') : 'meu-site')"
+              class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-l-lg px-3 py-2 text-sm text-dock-text outline-none font-mono"
+            />
+            <span class="bg-dock-bg text-dock-text-dim border border-l-0 border-dock-border rounded-r-lg px-3 py-2 text-xs font-mono select-none">
+              .localhost
+            </span>
+          </div>
+          <p class="text-[11px] text-dock-text-dim">
+            Deixe em branco para gerar automaticamente do nome. Você poderá alterar e adicionar domínios próprios a qualquer momento.
+          </p>
         </div>
 
         <!-- Modo 1: Escolha do Modelo -->

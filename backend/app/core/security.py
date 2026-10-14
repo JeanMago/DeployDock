@@ -1,44 +1,82 @@
 import base64
 import hashlib
 import hmac
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import jwt
 from cryptography.fernet import Fernet
 from fastapi import HTTPException, Request
 
 from app.core.config import settings
 
+JWT_ALGORITHM = "HS256"
+
 
 def _derive_fernet_key(secret: str) -> bytes:
     """
     Deriva uma chave Fernet de 32 bytes (base64url) a partir do SECRET_KEY.
-
-    Fernet exige exatamente 32 bytes codificados em base64url.
-    Usamos SHA-256 do SECRET_KEY para obter 32 bytes determinísticos,
-    independente do tamanho ou formato da chave configurada.
     """
-    key_bytes = hashlib.sha256(secret.encode("utf-8")).digest()  # 32 bytes
-    return base64.urlsafe_b64encode(key_bytes)                   # 44 chars base64url
+    key_bytes = hashlib.sha256(secret.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(key_bytes)
 
 
 fernet = Fernet(_derive_fernet_key(settings.SECRET_KEY))
 
 
-async def verify_github_signature(request: Request) -> bytes:
-    """
-    Valida a assinatura HMAC-SHA256 do webhook do GitHub.
+def get_password_hash(password: str) -> str:
+    """Gera hash PBKDF2-HMAC-SHA256 com salt aleatório."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+    return f"pbkdf2:sha256:100000${salt.hex()}${dk.hex()}"
 
-    O GitHub envia o header X-Hub-Signature-256 com o valor
-    'sha256=<hex_digest>' calculado sobre o payload usando o
-    GITHUB_WEBHOOK_SECRET como chave.
-    """
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifica se a senha em texto puro confere com o hash armazenado."""
+    try:
+        parts = hashed_password.split("$")
+        if len(parts) != 3:
+            return False
+        header, salt_hex, hash_hex = parts
+        _, _, iterations_str = header.split(":")
+        iterations = int(iterations_str)
+        salt = bytes.fromhex(salt_hex)
+        expected_dk = bytes.fromhex(hash_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(dk, expected_dk)
+    except Exception:
+        return False
+
+
+def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    """Cria um token JWT codificado com expiração."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    """Decodifica e valida o token JWT."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Token inválido ou expirado: {e}")
+
+
+async def verify_github_signature(request: Request) -> bytes:
+    """Valida a assinatura HMAC-SHA256 do webhook do GitHub."""
     signature_header = request.headers.get("X-Hub-Signature-256")
     if not signature_header:
         raise HTTPException(status_code=401, detail="Missing signature")
 
     payload_body = await request.body()
     secret = settings.GITHUB_WEBHOOK_SECRET.encode("utf-8")
-
-    # Bug fix: Python 3 usa hmac.new(key, msg, digestmod=) — não hmac.new()
     expected_signature = (
         "sha256=" + hmac.new(secret, payload_body, digestmod=hashlib.sha256).hexdigest()
     )
