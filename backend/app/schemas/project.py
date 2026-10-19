@@ -69,11 +69,14 @@ class ProjectList(BaseModel):
     repo_url: str
     branch: str
     auto_deploy: bool
+    webhook_secret: Optional[str] = None
     subdomain: Optional[str] = None
     custom_domain: Optional[str] = None
     container_port: Optional[int] = None
     public_host: str
     public_url: str
+    last_deploy_status: Optional[str] = None
+    container_id: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,3 +87,4 @@ class RoutingConfig(BaseModel):
     tls_enabled: bool
     scheme: str
     port_suffix: str
+

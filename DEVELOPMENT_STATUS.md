@@ -1,153 +1,63 @@
-# 🐳 DeployDock — Status do Desenvolvimento
+# 🐳 DeployDock — Status do Desenvolvimento & Contexto
 
-> **Última atualização**: 25/09/2026 — 20:30  
-> **Conversa anterior**: Implementação inicial completa (backend + frontend + infra)
-
----
-
-## ✅ O que já foi feito
-
-### Backend (Python/FastAPI) — COMPLETO
-- [x] Estrutura do projeto FastAPI com 37 arquivos
-- [x] Configuração (`core/config.py`) com Pydantic Settings + `.env`
-- [x] Banco de dados PostgreSQL async (`asyncpg` + SQLAlchemy 2.0)
-- [x] 3 modelos: `Project`, `Deployment`, `EnvironmentVariable` (UUID, timestamps)
-- [x] Schemas Pydantic v2 para todos os modelos
-- [x] `DockerService` — wrapper completo do Docker SDK:
-  - List/get/start/stop/restart/remove containers
-  - Stream logs (thread daemon + asyncio.Queue)
-  - Métricas CPU/RAM/Rede (fórmula correta de cgroups)
-  - Build images, list/remove images, volumes, networks
-  - System info, prune
-- [x] `GitService` — clone/pull via GitPython
-- [x] `DeployOrchestrator` — pipeline completo:
-  - Webhook → Clone → Build (streaming) → Container Swap → Health Check → Rollback automático
-- [x] `WebSocketManager` — gerenciador de conexões por tópico
-- [x] Validação HMAC-SHA256 dos webhooks GitHub (`hmac.compare_digest`)
-- [x] Criptografia Fernet para variáveis de ambiente
-- [x] 6 routers de API: containers, projects, deployments, webhooks, system, ws
-- [x] Endpoint `/health` para monitoramento
-
-### Frontend (Vue.js 3 + TypeScript + Tailwind v4) — COMPLETO + BUILD OK ✅
-- [x] Vite + Vue 3 + TypeScript configurado
-- [x] Tailwind CSS v4 com tema Docker dark-mode customizado
-- [x] Layout: Sidebar (glassmorphism) + Topbar + MainLayout com transições
-- [x] 6 páginas: Dashboard, ContainerList, ContainerDetail, Projects, Deployments, Settings
-- [x] Componentes: ContainerCard, ContainerTable, LogViewer (xterm.js), MetricsChart (vue-chartjs), StatusBadge, StatCard, DeployTimeline, DeployPipeline, ContainerActions
-- [x] Composables: useWebSocket (auto-reconnect), useContainerMetrics (FIFO buffer), useApi
-- [x] API client completo (`services/api.ts`) apontando para `/api/v1/*`
-- [x] `npm run build` passa sem erros
-
-### Infraestrutura — COMPLETO
-- [x] `docker-compose.yml` — 3 serviços (backend, frontend/nginx, postgres)
-- [x] `docker-compose.dev.yml` — override com hot reload
-- [x] `backend/Dockerfile` — multi-stage (dev + prod)
-- [x] `frontend/Dockerfile` — multi-stage (dev + build + nginx)
-- [x] `frontend/nginx.conf` — proxy API + WebSocket + gzip + SPA fallback
-- [x] `.env.example`, `.gitignore`, `README.md`
+> **Última atualização**: 18/10/2026  
+> **Status Atual**: **100% Completo e Pronto para Produção (Oracle Cloud / Hostgrid)**  
+> **Contexto Técnico Completo para IA**: Consulte **[`AI_CONTEXT.md`](./AI_CONTEXT.md)**
 
 ---
 
-## ⚠️ O que falta fazer / melhorar
+## ✅ Tudo o que já foi implementado
 
-### Prioridade Alta
-1. **Alembic (migrações de banco)** — ainda não configurado. Precisamos de:
-   - `alembic init alembic` no diretório backend
-   - Configurar `env.py` para usar o async engine
-   - Gerar a migração inicial: `alembic revision --autogenerate -m "initial"`
-   
-2. **Testar o sistema rodando** — subir com Docker Compose e verificar:
-   - Backend conecta no PostgreSQL
-   - Frontend carrega e exibe o dashboard
-   - Listagem de containers funciona
-   - WebSocket de logs e métricas funciona
-
-3. **Ajustar API client do frontend** — as URLs da API (`/api/v1/containers`, etc.) precisam bater exatamente com as rotas do backend. Verificar se os campos retornados pela API batem com os tipos TypeScript.
-
-### Prioridade Média
-4. **Testes automatizados** — pytest + pytest-asyncio para o backend:
-   - `test_webhook_security.py` — verificar validação HMAC
-   - `test_docker_service.py` — mock do Docker SDK
-   - `test_projects_api.py` — CRUD de projetos
-   
-5. **Topbar dinâmica** — os valores de "12 Running", "CPU: 14%", "RAM: 42%" no `AppTopbar.vue` estão hardcoded. Precisam buscar do `/api/v1/system/info` e atualizar periodicamente.
-
-6. **Projetos → Deploy trigger** — o botão "Deploy New Project" no Dashboard e o "Trigger Deploy" na page de Projects precisam estar wired com a API.
-
-7. **Env vars UI** — a tela de Projects precisa de um modal/seção para gerenciar variáveis de ambiente encriptadas.
-
-### Prioridade Baixa
-8. **Responsividade mobile** — sidebar collapsível já tem estrutura, mas precisa testar em telas pequenas
-9. **Notificações toast** — substituir `alert()` e `confirm()` por componentes de notificação estilizados
-10. **Tema claro** — toggle dark/light mode (opcional para o TCC)
-11. **Documentação Swagger** — adicionar descrições detalhadas nos endpoints FastAPI
+### 1. Backend (Python 3.12 / FastAPI) — COMPLETO ✅
+- [x] Configuração (`core/config.py`) com Pydantic Settings + suporte híbrido PostgreSQL (Produção) e SQLite (Dev local)
+- [x] Autenticação JWT (`core/security.py`, `endpoints/auth.py`) com seed automático de admin, troca de senha (`PUT /auth/password`), ativação/desativação e exclusão de usuários
+- [x] **Segurança Ativa & WAF (`core/waf.py`, `endpoints/security.py`)**:
+  - Proteção contra SQL Injection (SQLi), Cross-Site Scripting (XSS), Path Traversal (`../`), Command Injection e Scanners
+  - Rate Limiting por IP com janela deslizante
+  - Proteção Anti-Brute-Force automática no login (`/api/v1/auth/login`)
+  - Injeção de Security Headers (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`)
+- [x] **`DockerService` (`services/docker_service.py`)**:
+  - Gerenciamento completo de contêineres (list, inspect, start, stop, restart, remove)
+  - **Quick App Launcher** (`run_container`) para subir imagens/templates prontos em 1 clique
+  - **Explorador de Arquivos Interno** (`list_container_files` e `read_container_file`) dentro do contêiner
+  - **Coleta Avançada de Logs** com suporte a `tail`, `since`, `timestamps` e streaming não-bloqueante via WebSocket
+  - Métricas em tempo real (CPU, RAM, Rede, I/O) e Terminal Interativo (`/bin/sh` / `/bin/bash`)
+  - Gestão de Imagens, Volumes, Redes e **System Prune** (`prune_system`)
+- [x] **`DeployOrchestrator` (`services/deploy_orchestrator.py`)**:
+  - Pipeline GitOps completo: Clone → Auto-Dockerfile (Node.js, Python, Go, HTML estático) ou Docker Compose → Build com log completo → Swap de contêiner → Health Check → **Rollback Automático e Manual**
+- [x] **Roteamento Traefik & SSL (`core/routing.py`)**:
+  - Geração automática de subdomínios (`projeto.seudominio.com` ou `projeto.<IP>.sslip.io`)
+  - Certificados HTTPS automáticos via Let's Encrypt (`websecure`) e redirecionamento automático HTTP → HTTPS
+- [x] **Validação de Webhooks GitHub (`endpoints/webhooks.py`)**:
+  - Validação HMAC-SHA256 (`X-Hub-Signature-256`) tanto pelo `webhook_secret` individual de cada projeto quanto pelo segredo global
+- [x] **Diagnóstico de Produção (`endpoints/system.py`)**:
+  - Endpoint `GET /api/v1/system/production-check` avaliando prontidão de Traefik, Banco de Dados, `SECRET_KEY`, Domínio, TLS e Webhook
 
 ---
 
-## 📁 Estrutura do Projeto (referência rápida)
-
-```
-tcc/
-├── docker-compose.yml / docker-compose.dev.yml
-├── .env.example / .gitignore / README.md
-│
-├── backend/
-│   ├── Dockerfile / requirements.txt
-│   └── app/
-│       ├── main.py                          # FastAPI app
-│       ├── core/  (config, security, logging)
-│       ├── db/    (session, base)
-│       ├── models/  (project, deployment, environment)
-│       ├── schemas/ (project, deployment, container, webhook)
-│       ├── services/ (docker_service, git_service, deploy_orchestrator, websocket_manager)
-│       └── api/v1/endpoints/ (containers, projects, deployments, webhooks, system, ws)
-│
-└── frontend/
-    ├── Dockerfile / nginx.conf / package.json / vite.config.ts
-    └── src/
-        ├── assets/main.css          # Tailwind v4 + tema
-        ├── components/              # layout/, containers/, deployments/, common/
-        ├── composables/             # useWebSocket, useContainerMetrics, useApi
-        ├── pages/                   # 6 páginas
-        ├── router/index.ts
-        └── services/ (api.ts, types.ts)
-```
+### 2. Frontend (Vue.js 3 + TypeScript + Tailwind CSS v4) — COMPLETO ✅
+- [x] **Menu Lateral Limpo & Responsividade Mobile (`AppSidebar.vue`, `MainLayout.vue`)**:
+  - Sidebar em coluna única com badges em tempo real, colapsável no computador
+  - **Gestos Touch Swipe no Celular**: arrastar o dedo da esquerda para a direita abre o menu lateral suavemente; arrastar para a esquerda fecha
+- [x] **Coletor Avançado de Logs (`LogViewer.vue`)**:
+  - Filtros rápidos por nível (`ALL`, `ERROR`, `WARN`, `INFO`) com contadores, busca com highlight, seletor de `tail`, pausa de stream, quebra de linha, tela cheia e download `.log`
+- [x] **10 Páginas Completas**:
+  1. `LoginPage.vue` — Autenticação JWT
+  2. `DashboardPage.vue` — Métricas de CPU/RAM/Disco do host, status dos contêineres e últimos deploys
+  3. `ContainerListPage.vue` — Tabela/cards responsivos + **Quick App Launcher** (Redis, Postgres, MySQL, Nginx, Uptime Kuma, Adminer)
+  4. `ContainerDetailPage.vue` — Gráficos em tempo real, Logs, Terminal Web (`xterm.js`) e **Explorador de Arquivos**
+  5. `ProjectsPage.vue` — Gestão de projetos GitOps, modal `.env` (`ProjectEnvModal.vue`), disparo de deploy e **Rollback em 1 clique**
+  6. `DeploymentsPage.vue` — Linha do tempo de deploys com visualização dos logs completos de build
+  7. `ResourcesPage.vue` — Imagens, Volumes, Redes e botão **System Prune**
+  8. `SecurityPage.vue` — Painel do WAF, bloqueio/desbloqueio de IPs e log de ataques bloqueados
+  9. `SettingsPage.vue` — **Checklist de Prontidão para Produção**, **Gerador Interativo de `.env`** (Domínio ou `sslip.io`), Alteração de Senha e Gestão de Usuários
+  10. `TutorialPage.vue` — **Tutorial completo em 6 abas** (Configuração `.env`, Oracle Cloud, Hostgrid VPS, Domínios/SSL, GitHub Webhooks e Segurança WAF)
+- [x] **Command Palette Global (`CommandPalette.vue`)**: Atalho `Ctrl+K` para busca rápida em todo o sistema
 
 ---
 
-## 🚀 Como continuar
-
-```bash
-# 1. Para rodar tudo com Docker:
-cp .env.example .env
-docker-compose up --build
-
-# 2. Para dev local (backend):
-cd backend
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# 3. Para dev local (frontend):
-cd frontend
-npm install   # já feito, node_modules existe
-npm run dev   # http://localhost:3000
-
-# 4. Swagger da API:
-# http://localhost:8000/docs
-```
-
----
-
-## 🔑 Decisões técnicas tomadas
-
-| Decisão | Justificativa |
-|---|---|
-| `asyncio.to_thread()` para docker-py | Docker SDK é síncrono — isola operações bloqueantes |
-| Thread daemon + asyncio.Queue para log streaming | Evita bloquear o event loop do FastAPI ao fazer `follow=True` |
-| Fernet para env vars | Criptografia simétrica simples, adequada para o escopo do TCC |
-| Tailwind v4 CSS-first (sem tailwind.config.js) | Simplifica config, usa `@theme` direto no CSS |
-| vue-chartjs (não Recharts) | Recharts é React-only; vue-chartjs é o equivalente para Vue |
-| xterm.js para logs | Renderiza ANSI colors, alta performance via Canvas, zero re-renders |
-| PostgreSQL (não SQLite) | Escolha do aluno — robusto, escalável, roda em contêiner dedicado |
+### 3. Infraestrutura & Produção — COMPLETO ✅
+- [x] `docker-compose.yml` otimizado e seguro para produção (Traefik v2.11 + PostgreSQL 16 + Backend protegido em `127.0.0.1` + Frontend Nginx multi-stage `production`)
+- [x] `deploy-prod.sh` — Script automatizado para VPS Linux (instala Docker, cria 2GB Swap, abre portas no `iptables`/`ufw`, gera `.env` seguro e sobe a stack)
+- [x] `GUIA_DEPLOY_PRODUCAO_ORACLE_HOSTGRID.md` — Documentação passo a passo para Oracle Cloud (OCI) e Hostgrid VPS
+- [x] `AI_CONTEXT.md` — Documento de contexto arquitetural completo para assistentes de IA

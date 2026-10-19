@@ -1,44 +1,46 @@
 @import "tailwindcss";
 
 @theme {
-  --color-dock-bg: #070b14;
-  --color-dock-surface: #0f1629;
-  --color-dock-panel: #151d30;
-  --color-dock-border: #1e2a45;
-  --color-dock-border-light: #2a3a5c;
-  --color-dock-text: #e2e8f0;
-  --color-dock-text-muted: #94a3b8;
-  --color-dock-text-dim: #64748b;
-  --color-dock-accent: #0ea5e9;
-  --color-dock-accent-hover: #38bdf8;
-  --color-dock-success: #22c55e;
-  --color-dock-warning: #eab308;
+  --color-dock-bg: #0a0a0c;
+  --color-dock-surface: #111114;
+  --color-dock-panel: #151519;
+  --color-dock-border: #232329;
+  --color-dock-border-light: #34343d;
+  --color-dock-text: #ededf0;
+  --color-dock-text-muted: #9898a2;
+  --color-dock-text-dim: #666670;
+  --color-dock-accent: #3b82f6;
+  --color-dock-accent-hover: #2563eb;
+  --color-dock-success: #10b981;
+  --color-dock-warning: #f59e0b;
   --color-dock-error: #ef4444;
   --color-dock-info: #6366f1;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @layer base {
   html, body {
-    @apply h-full w-full overflow-hidden;
+    @apply h-full w-full overflow-hidden antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
-  
-  /* Custom scrollbar */
+
+  /* Barra de rolagem discreta e técnica */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-dock-surface;
+    @apply bg-dock-bg;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-dock-border rounded-full hover:bg-dock-border-light transition-colors;
+    @apply bg-dock-border hover:bg-dock-border-light;
   }
 }
 
 @layer utilities {
   .glass-panel {
-    @apply bg-dock-panel/80 backdrop-blur-md border border-dock-border shadow-lg rounded-xl;
+    @apply bg-dock-panel border border-dock-border rounded-md;
   }
 }
+

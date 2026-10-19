@@ -65,7 +65,7 @@ def public_url(host: str) -> str:
 
 
 def build_traefik_labels(project_id: str, host: str, container_port: int | None) -> dict[str, str]:
-    """Labels Docker lidas pelo Traefik para expor o contêiner no host informado."""
+    """Labels Docker lidas pelo Traefik para expor o contêiner no host informado (com HTTP->HTTPS em produção)."""
     key = f"dd-{project_id.replace('-', '')[:12]}"
     labels = {
         "traefik.enable": "true",
@@ -78,9 +78,16 @@ def build_traefik_labels(project_id: str, host: str, container_port: int | None)
         labels[f"traefik.http.routers.{key}.entrypoints"] = "websecure"
         labels[f"traefik.http.routers.{key}.tls"] = "true"
         labels[f"traefik.http.routers.{key}.tls.certresolver"] = settings.TRAEFIK_CERT_RESOLVER
+        # Router HTTP na porta 80 que redireciona automaticamente para HTTPS (443)
+        labels[f"traefik.http.routers.{key}-http.rule"] = f"Host(`{host}`)"
+        labels[f"traefik.http.routers.{key}-http.entrypoints"] = "web"
+        labels[f"traefik.http.routers.{key}-http.middlewares"] = f"{key}-https-redirect"
+        labels[f"traefik.http.middlewares.{key}-https-redirect.redirectscheme.scheme"] = "https"
+        labels[f"traefik.http.middlewares.{key}-https-redirect.redirectscheme.permanent"] = "true"
     else:
         labels[f"traefik.http.routers.{key}.entrypoints"] = "web"
     if container_port:
         labels[f"traefik.http.routers.{key}.service"] = key
         labels[f"traefik.http.services.{key}.loadbalancer.server.port"] = str(container_port)
     return labels
+

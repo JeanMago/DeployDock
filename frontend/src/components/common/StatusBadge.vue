@@ -30,16 +30,16 @@ const config = computed(() => {
 
 const sizeClasses = computed(() => {
   switch (props.size) {
-    case 'sm': return 'px-1.5 py-0.5 text-[10px] gap-1';
-    case 'lg': return 'px-3 py-1.5 text-sm gap-2';
-    default: return 'px-2 py-1 text-xs gap-1.5';
+    case 'sm': return 'px-1.5 py-0.5 text-[11px] gap-1.5';
+    case 'lg': return 'px-2.5 py-1 text-xs gap-2';
+    default: return 'px-2 py-0.5 text-xs gap-1.5';
   }
 });
 
 const displayStatus = computed(() => {
   const s = (props.status || 'desconhecido').toLowerCase();
   const map: Record<string, string> = {
-    running: 'em execução',
+    running: 'ativo',
     healthy: 'saudável',
     success: 'sucesso',
     up: 'ativo',
@@ -61,15 +61,12 @@ const displayStatus = computed(() => {
 </script>
 
 <template>
-  <span class="inline-flex items-center border rounded-full font-medium whitespace-nowrap capitalize transition-colors" :class="[config.color, sizeClasses]">
+  <span class="inline-flex items-center border rounded font-mono whitespace-nowrap transition-colors" :class="[config.color, sizeClasses]">
     <span 
-      class="rounded-full shrink-0" 
-      :class="[
-        config.dot, 
-        props.size === 'sm' ? 'w-1.5 h-1.5' : (props.size === 'lg' ? 'w-2.5 h-2.5' : 'w-2 h-2'),
-        (pulse || (props.status && props.status.toLowerCase().includes('running'))) ? 'animate-pulse shadow-[0_0_8px_rgba(var(--color-dock-success),0.6)]' : ''
-      ]"
+      class="rounded-full shrink-0 w-1.5 h-1.5" 
+      :class="[config.dot]"
     ></span>
     <slot>{{ displayStatus }}</slot>
   </span>
 </template>
+

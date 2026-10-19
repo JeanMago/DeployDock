@@ -299,9 +299,29 @@ class DeployOrchestrator:
     async def _run_app_container(self, project: Project, image: str, container_name: str):
         """
         Inicia o contêiner da aplicação já registrado no proxy reverso (Traefik):
-        conectado à rede compartilhada e com labels de roteamento para o host público.
-        `publish_all_ports` continua ativo para acesso direto via porta do host.
+        conectado à rede compartilhada, com variáveis de ambiente do projeto,
+        hardening de segurança (no-new-privileges + pids_limit) e labels de roteamento.
         """
+        from app.models.environment import EnvironmentVariable
+        from app.core.security import decrypt_value
+        from app.core.waf import security_manager
+
+        env_vars: dict[str, str] = {}
+        try:
+            env_res = await self.db.execute(
+                select(EnvironmentVariable).where(EnvironmentVariable.project_id == project.id)
+            )
+            for item in env_res.scalars().all():
+                val = item.value
+                if item.is_secret and val.startswith("enc:"):
+                    try:
+                        val = decrypt_value(val[4:])
+                    except Exception:
+                        pass
+                env_vars[item.key] = val
+        except Exception:
+            pass
+
         def _run():
             self.docker.ensure_network(settings.APPS_NETWORK)
             port = project.container_port
@@ -309,6 +329,11 @@ class DeployOrchestrator:
                 exposed = self.docker.get_image_exposed_ports(image)
                 port = exposed[0] if exposed else 80
             labels = build_traefik_labels(str(project.id), project.public_host, port)
+            sec_opts = (
+                ["no-new-privileges:true"]
+                if security_manager.config.get("container_no_new_privileges", True)
+                else None
+            )
             return self.docker.client.containers.run(
                 image,
                 name=container_name,
@@ -317,14 +342,17 @@ class DeployOrchestrator:
                 publish_all_ports=True,
                 network=settings.APPS_NETWORK,
                 labels=labels,
+                environment=env_vars if env_vars else None,
+                security_opt=sec_opts,
+                pids_limit=256,
             )
 
         return await asyncio.to_thread(_run)
 
     async def apply_routing(self, project: Project) -> bool:
         """
-        Reaplica a URL pública de um projeto já implantado (após alterar subdomínio,
-        domínio ou porta) recriando o contêiner com a mesma imagem e novas labels.
+        Reaplica a URL pública e variáveis de ambiente de um projeto já implantado
+        recriando o contêiner com a mesma imagem.
         Retorna False se o projeto ainda não possui contêiner.
         """
         container_name = f"deploydock_{project.name.lower()}"
@@ -337,7 +365,7 @@ class DeployOrchestrator:
         await self.docker.stop_container(container_name, timeout=10)
         await self.docker.remove_container(container_name, force=True)
         await self._run_app_container(project, image, container_name)
-        logger.info(f"[Routing] {project.name} agora disponível em {project.public_url}")
+        logger.info(f"[Routing/Env] {project.name} atualizado em {project.public_url}")
         return True
 
     async def _run_health_check(self, url: str, retries: int, timeout: int) -> bool:

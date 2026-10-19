@@ -31,6 +31,8 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.db.session import init_db, engine
 from app.api.v1.router import api_router
+from app.api.v1.endpoints import ws
+from app.core.waf import SecurityShieldMiddleware
 
 setup_logging()
 
@@ -42,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
+app.add_middleware(SecurityShieldMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -51,6 +54,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(ws.router, prefix="/ws", tags=["websocket"])
 
 @app.get("/health")
 async def health_check():
@@ -59,3 +63,4 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"app": settings.APP_NAME, "version": "1.0.0"}
+

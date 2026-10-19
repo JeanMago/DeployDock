@@ -19,13 +19,9 @@ services:
     container_name: deploydock-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${BACKEND_BIND_IP:-127.0.0.1}:8000:8000"
     volumes:
-      # Mount Docker socket to allow container management from inside the backend
-      # Linux: /var/run/docker.sock
-      # Windows (Docker Desktop): //var/run/docker.sock (via WSL2 translation)
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persistent storage for cloned repositories
       - repos_data:/app/repos
     depends_on:
       db:
@@ -44,6 +40,9 @@ services:
       - PROXY_HTTP_PORT=${PROXY_HTTP_PORT:-80}
       - PROXY_HTTPS_PORT=${PROXY_HTTPS_PORT:-443}
       - APPS_NETWORK=${APPS_NETWORK:-deploydock-apps}
+      - INITIAL_ADMIN_USERNAME=${INITIAL_ADMIN_USERNAME:-admin}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-admin@deploydock.local}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-admin123}
     networks:
       - deploydock-net
       - deploydock-apps
@@ -61,6 +60,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: production
     container_name: deploydock-frontend
     restart: unless-stopped
     ports:
@@ -76,6 +76,10 @@ services:
       - "traefik.http.routers.deploydock.rule=Host(`${DEPLOYDOCK_HOST:-localhost}`)"
       - "traefik.http.routers.deploydock.entrypoints=web"
       - "traefik.http.services.deploydock.loadbalancer.server.port=80"
+      - "traefik.http.routers.deploydock-secure.rule=Host(`${DEPLOYDOCK_HOST:-localhost}`)"
+      - "traefik.http.routers.deploydock-secure.entrypoints=websecure"
+      - "traefik.http.routers.deploydock-secure.tls=true"
+      - "traefik.http.routers.deploydock-secure.tls.certresolver=letsencrypt"
 
   # -------------------------------------------
   # Database - PostgreSQL 16
@@ -105,9 +109,11 @@ services:
   # Roteia automaticamente cada projeto para sua URL (ex: meusite.localhost ou meusite.seudominio.com)
   # Em produção com APPS_TLS_ENABLED=true, emite certificados SSL/TLS Let's Encrypt automaticamente
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.6
     container_name: deploydock-traefik
     restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.44
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"

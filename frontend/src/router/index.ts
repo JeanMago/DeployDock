@@ -44,6 +44,17 @@ const router = createRouter({
           component: () => import('@/pages/DeploymentsPage.vue')
         },
         {
+          path: 'resources',
+          name: 'Resources',
+          component: () => import('@/pages/ResourcesPage.vue'),
+          meta: { requiresDockerAccess: true }
+        },
+        {
+          path: 'security',
+          name: 'Security',
+          component: () => import('@/pages/SecurityPage.vue')
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/pages/SettingsPage.vue'),

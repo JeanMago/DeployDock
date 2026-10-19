@@ -1,35 +1,109 @@
 <script setup lang="ts">
-import { CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-vue-next';
+import { ref } from 'vue';
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
+  RotateCcw,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+} from 'lucide-vue-next';
+import StatusBadge from '@/components/common/StatusBadge.vue';
 import type { Deployment } from '@/services/types';
 
 defineProps<{ deployments: Deployment[] }>();
 defineEmits<{ (e: 'rollback', id: string): void }>();
 
-const formatDate = (date: string) => new Date(date).toLocaleString();
+const expandedLogs = ref<Set<string>>(new Set());
+
+const toggleLogs = (id: string) => {
+  const next = new Set(expandedLogs.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedLogs.value = next;
+};
+
+const formatDate = (date: string) => new Date(date).toLocaleString('pt-BR');
 </script>
 
 <template>
-  <div class="relative pl-6 border-l border-dock-border ml-4 space-y-8">
-    <div v-for="dep in deployments" :key="dep.id" class="relative group">
-      <div class="absolute -left-[33px] top-1 p-1 bg-dock-bg rounded-full border border-dock-border shadow-sm">
-        <CheckCircle2 v-if="dep.status === 'healthy'" class="w-5 h-5 text-dock-success" />
-        <XCircle v-else-if="dep.status === 'failed'" class="w-5 h-5 text-dock-error" />
-        <Clock v-else class="w-5 h-5 text-dock-accent animate-pulse" />
-      </div>
-      <div class="glass-panel p-4 hover:border-dock-border-light transition-colors">
-        <div class="flex justify-between items-start mb-2">
-          <div>
-            <h4 class="font-medium text-dock-text">{{ dep.commit_message || 'Deploy Manual' }}</h4>
-            <div class="flex items-center gap-3 text-xs text-dock-text-muted mt-1">
-              <span class="font-mono bg-dock-surface px-1.5 py-0.5 rounded border border-dock-border">{{ dep.commit_sha.substring(0,7) }}</span>
-              <span>por {{ dep.commit_author || 'Automático' }}</span>
+  <div class="space-y-3">
+    <div
+      v-for="dep in deployments"
+      :key="dep.id"
+      class="glass-panel overflow-hidden transition-colors"
+    >
+      <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-start gap-3 min-w-0">
+          <div class="mt-0.5 shrink-0">
+            <CheckCircle2 v-if="dep.status === 'healthy'" class="w-4 h-4 text-dock-success" />
+            <XCircle v-else-if="dep.status === 'failed'" class="w-4 h-4 text-dock-error" />
+            <Clock v-else class="w-4 h-4 text-dock-accent animate-pulse" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-sm font-semibold text-dock-text truncate">
+                {{ dep.commit_message || 'Deploy da Aplicação' }}
+              </h4>
+              <StatusBadge :status="dep.status" size="sm" />
+            </div>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono text-dock-text-dim mt-1">
+              <span class="bg-dock-bg px-1.5 py-0.5 rounded border border-dock-border text-dock-text-muted">
+                {{ dep.commit_sha ? dep.commit_sha.substring(0, 8) : 'initial' }}
+              </span>
+              <span>branch: {{ dep.branch }}</span>
+              <span>autor: {{ dep.commit_author || 'DeployDock' }}</span>
               <span>{{ formatDate(dep.started_at) }}</span>
+              <span v-if="dep.duration_seconds !== null && dep.duration_seconds !== undefined" class="text-dock-text-muted">
+                duração: {{ dep.duration_seconds }}s
+              </span>
             </div>
           </div>
-          <button v-if="dep.status === 'healthy'" @click="$emit('rollback', dep.id)" class="px-2.5 py-1 text-xs font-medium bg-dock-surface border border-dock-border text-dock-text hover:bg-dock-accent/10 hover:text-dock-accent hover:border-dock-accent/30 rounded transition-colors flex items-center gap-1.5 opacity-0 group-hover:opacity-100 cursor-pointer" title="Reverter para esta versão">
-            <RotateCcw class="w-3.5 h-3.5" /> Reverter Versão
+        </div>
+
+        <div class="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <button
+            v-if="dep.build_logs || dep.error_message"
+            @click="toggleLogs(dep.id)"
+            class="px-2.5 py-1 text-xs font-mono bg-dock-surface hover:bg-dock-bg border border-dock-border text-dock-text-muted hover:text-dock-text rounded transition-colors flex items-center gap-1.5 cursor-pointer"
+          >
+            <Terminal class="w-3.5 h-3.5" />
+            <span>Logs de Build</span>
+            <ChevronUp v-if="expandedLogs.has(dep.id)" class="w-3.5 h-3.5" />
+            <ChevronDown v-else class="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            v-if="dep.previous_image_id && dep.status === 'healthy'"
+            @click="$emit('rollback', dep.id)"
+            class="px-2.5 py-1 text-xs font-mono bg-dock-surface hover:bg-dock-panel border border-dock-border text-dock-text-muted hover:text-dock-warning rounded transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Reverter contêiner para a imagem anterior a este deploy"
+          >
+            <RotateCcw class="w-3.5 h-3.5" /> Rollback
           </button>
         </div>
+      </div>
+
+      <!-- Mensagem de erro se falhou -->
+      <div
+        v-if="dep.error_message"
+        class="mx-4 mb-3 px-3 py-2 rounded bg-dock-error/10 border border-dock-error/30 text-dock-error text-xs font-mono flex items-start gap-2"
+      >
+        <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
+        <span class="break-all">{{ dep.error_message }}</span>
+      </div>
+
+      <!-- Console Expansível de Build Logs -->
+      <div
+        v-if="expandedLogs.has(dep.id)"
+        class="border-t border-dock-border bg-dock-bg p-3 font-mono text-xs"
+      >
+        <div class="text-[11px] text-dock-text-dim mb-2 flex justify-between">
+          <span>Saída do Docker Build ({{ dep.commit_sha?.substring(0, 8) }})</span>
+        </div>
+        <pre class="max-h-80 overflow-y-auto overflow-x-auto p-2.5 rounded bg-dock-surface border border-dock-border text-dock-text whitespace-pre-wrap break-all leading-relaxed">{{ dep.build_logs || 'Sem saída de build registrada.' }}</pre>
       </div>
     </div>
   </div>

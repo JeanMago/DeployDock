@@ -1,28 +1,35 @@
 # 🐳 DeployDock
 
-**Automação de Infraestrutura e GitOps Simplificado** — Plataforma integrada para gerenciamento de contêineres Docker e entrega contínua orientada a eventos do GitHub.
+**Plataforma Auto-Hospedável de Gerenciamento Docker, PaaS e GitOps Simplificado** — Uma alternativa leve, moderna e segura ao Coolify, Portainer e CapRover para gerenciar contêineres, automatizar deploys via GitHub Webhooks, rotear domínios com SSL automático (Traefik + Let's Encrypt) e proteger suas aplicações com WAF integrado.
 
 ---
 
-## 📋 Sobre
+## 📋 Sobre o Projeto
 
-DeployDock é uma plataforma web **auto-hospedável** e **leve** que unifica:
+O **DeployDock** unifica em uma única interface responsiva (Desktop & Mobile com gestos touch):
 
-- **Gerenciamento visual de contêineres Docker** — Dashboard completo para monitorar, controlar e inspecionar contêineres, imagens, volumes e redes.
-- **Deploy contínuo via GitHub Webhooks** — Automação do ciclo de deploy (clone → build → deploy → health check → rollback) disparada por eventos de push no repositório.
+- **Gerenciamento Completo de Contêineres Docker** — Dashboard em tempo real, Quick App Launcher (catálogo 1-clique para Redis, Postgres, MySQL, Nginx, Uptime Kuma, Adminer ou imagem customizada), Terminal Interativo (`/bin/sh` / `/bin/bash`), Explorador de Arquivos dentro do contêiner, e coletor avançado de logs com filtro por severidade (`ERROR`, `WARN`, `INFO`), regex, pausa e download.
+- **Deploy Contínuo GitOps (Zero-Config & Dockerfile)** — Pipeline automatizado (`Clone → Build / Nixpacks Auto-Dockerfile → Deploy → Health Check → Rollback`) acionado manualmente ou por eventos `push` do GitHub validados via **HMAC-SHA256**.
+- **Roteamento Reverso & HTTPS Automático** — Integração nativa com **Traefik v2.11** para subdomínios automáticos (`projeto.seudominio.com` ou `projeto.<IP>.sslip.io`), domínios customizados e redirecionamento automático HTTP → HTTPS (Let's Encrypt).
+- **Segurança Ativa (WAF + Rate Limiter + Anti-Brute-Force)** — Middleware de inspeção de pacotes contra SQL Injection, XSS, Path Traversal e Command Injection, bloqueio automático de IPs atacantes e painel de auditoria em tempo real.
 
-### Funcionalidades Principais
+---
 
-| Funcionalidade | Descrição |
+## ✨ Funcionalidades Principais
+
+| Módulo | Funcionalidades |
 |---|---|
-| 🖥️ Dashboard | Visão geral do estado dos contêineres, métricas de CPU/RAM e histórico de deploys |
-| 📦 Gerenciamento de Contêineres | Start, stop, restart, remove, logs em tempo real e métricas |
-| 🔗 GitHub Webhooks | Receptor validado via HMAC-SHA256 para deploy automatizado |
-| 🔄 Deploy Automático | Pipeline: clone → build → deploy → health check |
-| ⏪ Rollback Automático | Reversão automática em caso de falha no health check |
-| 📊 Métricas em Tempo Real | CPU%, memória e I/O via WebSocket |
-| 📜 Logs Streaming | Terminal xterm.js com logs em tempo real |
-| 🔒 Segurança | HMAC-SHA256, variáveis de ambiente encriptadas |
+| 🖥️ **Dashboard & Métricas** | Monitoramento de CPU, RAM, Disco, Rede e I/O em tempo real via WebSockets |
+| 📦 **Contêineres & Quick Launch** | Start, Stop, Restart, Remove, lançamento rápido de serviços em 1 clique e inspeção detalhada |
+| 📜 **Coleta Avançada de Logs** | Streaming WebSocket com reconexão automática, busca/filtro por nível (`ERR`, `WARN`, `INFO`), seletor de `tail`, tela cheia e exportação `.log` |
+| 📁 **File Explorer & Terminal Web** | Navegação de diretórios dentro do contêiner, leitura de arquivos de configuração e terminal interativo `xterm.js` |
+| 🚀 **Projetos & GitOps** | Suporte a **Dockerfile**, **Docker Compose** e **Auto-Detecção (Node.js, Python, Go, HTML)**, editor `.env` em lote e Rollback em 1 clique |
+| 🛡️ **WAF & Segurança (`/security`)** | Proteção contra SQLi/XSS/Path Traversal, Rate Limiting por IP, proteção Anti-Brute-Force no login, Security Headers (CSP, HSTS, X-Frame-Options) e bloqueio manual/automático de IPs |
+| 🧹 **Recursos Docker (`/resources`)** | Gerenciamento de Imagens, Volumes e Redes com **System Prune** (limpeza de cache/imagens órfãs) |
+| ⌘ **Command Palette (`Ctrl+K`)** | Busca global rápida de páginas, projetos, contêineres e ações |
+| 📱 **UX Desktop & Mobile** | Menu lateral colapsável no computador e gaveta deslizante com suporte a **arrastar o dedo (swipe touch gesture)** no celular |
+| ⚙️ **Prontidão de Produção (`/settings`)** | Checklist em tempo real de prontidão para produção, gerador interativo de `.env` (Domínio próprio ou `sslip.io`) e gestão de usuários/senhas |
+| 📖 **Tutorial Integrado (`/tutorial`)** | Guia passo a passo dentro do sistema cobrindo `.env`, Oracle Cloud (OCI), Hostgrid VPS, DNS/SSL e Webhooks |
 
 ---
 
@@ -30,122 +37,110 @@ DeployDock é uma plataforma web **auto-hospedável** e **leve** que unifica:
 
 | Camada | Tecnologia |
 |---|---|
-| Backend | Python 3.12 / FastAPI |
-| Frontend | Vue.js 3 / TypeScript / Tailwind CSS v4 |
-| Banco de Dados | PostgreSQL 16 |
-| Real-time | WebSockets |
-| Docker SDK | docker-py |
-| Infraestrutura | Docker Compose |
+| **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 · Pydantic v2 · Docker SDK (`docker-py`) |
+| **Segurança** | WAF Middleware · JWT (`python-jose`) · Bcrypt · HMAC-SHA256 Webhook Verification |
+| **Frontend** | Vue.js 3 (Composition API) · TypeScript · Tailwind CSS · Pinia · Lucide Icons · Xterm.js |
+| **Banco de Dados** | PostgreSQL 16 (Produção) / SQLite (Desenvolvimento rápido) |
+| **Proxy & SSL** | Traefik v2.11 · Let's Encrypt ACME (TLS HTTP Challenge) |
+| **Infraestrutura** | Docker Engine & Docker Compose v2 |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Como Executar
 
-### Pré-requisitos
+### 1. Produção Automatizada (Oracle Cloud, Hostgrid ou qualquer VPS Ubuntu/Debian)
 
-- [Docker](https://www.docker.com/) e [Docker Compose](https://docs.docker.com/compose/) instalados
-- [Git](https://git-scm.com/)
-
-### Produção
+O DeployDock inclui o script [`deploy-prod.sh`](./deploy-prod.sh) que instala o Docker, configura 2 GB de Swap se necessário, libera as portas no firewall (`iptables` / `ufw`), gera senhas criptográficas no `.env` e sobe toda a stack:
 
 ```bash
-# 1. Clone o repositório
-git clone https://github.com/seu-usuario/deploydock.git
-cd deploydock
+git clone https://github.com/SEU-USUARIO/DeployDock.git
+cd DeployDock
+chmod +x deploy-prod.sh
 
-# 2. Configure as variáveis de ambiente
-cp .env.example .env
-# Edite .env com suas configurações (especialmente SECRET_KEY e GITHUB_WEBHOOK_SECRET)
+# Com domínio próprio (HTTPS automático Let's Encrypt):
+sudo ./deploy-prod.sh seudominio.com seu-email@seudominio.com
 
-# 3. Suba os serviços
-docker-compose up -d --build
-
-# 4. Acesse o dashboard
-# http://localhost
+# Ou SEM domínio próprio (usa <IP_PUBLICO>.sslip.io automaticamente):
+sudo ./deploy-prod.sh
 ```
 
-### Desenvolvimento
+> 📖 **Guia Completo de Produção:** Consulte o arquivo [**GUIA_DEPLOY_PRODUCAO_ORACLE_HOSTGRID.md**](./GUIA_DEPLOY_PRODUCAO_ORACLE_HOSTGRID.md) para o passo a passo detalhado na **Oracle Cloud (OCI Always Free)** e na **Hostgrid VPS**.
+
+---
+
+### 2. Desenvolvimento Rápido (Windows / WSL / Linux)
+
+No Windows (com WSL Ubuntu), basta executar:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-dev.ps1
+```
+
+Ou no Linux/macOS:
 
 ```bash
-# Suba com hot reload (backend + frontend)
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-
-# Backend: http://localhost:8000 (API + Swagger UI em /docs)
-# Frontend: http://localhost:3000 (Vite dev server)
-# PostgreSQL: localhost:5432
+chmod +x start-dev.sh
+./start-dev.sh
 ```
 
-### Desenvolvimento Local (sem Docker)
-
-```bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Frontend
-cd frontend
-npm install
-npm run dev
-```
+- **Frontend (Painel Web):** `http://localhost:3000`
+- **Backend (API + Swagger UI):** `http://localhost:8000/docs`
 
 ---
 
 ## 📁 Estrutura do Projeto
 
-```
-deploydock/
-├── docker-compose.yml          # Orquestração de produção
-├── docker-compose.dev.yml      # Override para desenvolvimento
-├── .env.example                # Template de variáveis de ambiente
+```text
+DeployDock/
+├── docker-compose.yml                        # Stack de Produção (Traefik, Postgres, Backend, Frontend)
+├── docker-compose.dev.yml                    # Override para Desenvolvimento
+├── deploy-prod.sh                            # Instalador automatizado para VPS Linux (Oracle/Hostgrid)
+├── GUIA_DEPLOY_PRODUCAO_ORACLE_HOSTGRID.md   # Documentação detalhada de deploy em produção
+├── CHANGELOG.md                              # Histórico detalhado de todas as evoluções do projeto
+├── start-dev.ps1 / start-dev.sh              # Scripts de inicialização rápida em desenvolvimento
 │
-├── backend/                    # API FastAPI
+├── backend/                                  # API FastAPI (Python 3.12)
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── app/
-│       ├── main.py             # Aplicação FastAPI
-│       ├── core/               # Configurações e segurança
-│       ├── db/                 # Banco de dados (SQLAlchemy)
-│       ├── models/             # Modelos ORM
-│       ├── schemas/            # DTOs Pydantic
-│       ├── services/           # Lógica de negócio
-│       └── api/v1/             # Endpoints REST e WebSocket
+│       ├── main.py                           # Inicialização FastAPI, CORS, Admin Seed e WAF Middleware
+│       ├── core/
+│       │   ├── config.py                     # Variáveis de ambiente e configurações globais
+│       │   ├── routing.py                    # Geração dinâmica de labels Traefik (HTTP + HTTPS Redirect)
+│       │   ├── security.py                   # Hash Bcrypt e tokens JWT
+│       │   └── waf.py                        # WAF, Rate Limiter, Anti-Brute-Force e Security Headers
+│       ├── models/                           # Modelos ORM (User, Project, Deployment)
+│       ├── schemas/                          # Schemas Pydantic
+│       ├── services/
+│       │   ├── docker_service.py             # Gerenciamento de contêineres, arquivos, exec, prune e stats
+│       │   └── deploy_orchestrator.py        # Pipeline de build, auto-Dockerfile, healthcheck e rollback
+│       └── api/v1/endpoints/                 # Rotas REST (auth, containers, projects, deployments, security, system, webhooks, ws)
 │
-└── frontend/                   # SPA Vue.js
-    ├── Dockerfile
-    ├── nginx.conf
+└── frontend/                                 # SPA Vue 3 + TypeScript + Tailwind CSS
+    ├── Dockerfile                            # Multi-stage build (Dev + Nginx Production)
+    ├── nginx.conf                            # Configuração Nginx com proxy WebSocket e API
     └── src/
-        ├── components/         # Componentes Vue
-        ├── composables/        # Composables (hooks)
-        ├── pages/              # Páginas
-        ├── router/             # Vue Router
-        └── services/           # API client
+        ├── components/
+        │   ├── common/                       # StatCard, StatusBadge, EmptyState
+        │   ├── containers/                   # ContainerTable, LogViewer (coleta avançada de logs)
+        │   ├── deployments/                  # DeployTimeline (histórico com logs e rollback)
+        │   ├── layout/                       # MainLayout (swipe mobile), AppSidebar, AppTopbar, CommandPalette
+        │   └── projects/                     # CreateProjectModal, ProjectEnvModal
+        ├── pages/
+        │   ├── DashboardPage.vue             # Visão geral e telemetria do host
+        │   ├── ContainerListPage.vue         # Lista de contêineres + Quick App Launcher
+        │   ├── ContainerDetailPage.vue       # Métricas, Logs, Terminal Web e File Explorer
+        │   ├── ProjectsPage.vue              # Gestão de aplicações GitOps, .env e Rollback
+        │   ├── ResourcesPage.vue             # Imagens, Volumes, Redes e System Prune
+        │   ├── SecurityPage.vue              # Painel WAF, IPs bloqueados e eventos de ataque
+        │   ├── SettingsPage.vue              # Checklist de produção, Gerador de .env, Senha e Usuários
+        │   └── TutorialPage.vue              # Documentação interativa em 6 abas
+        ├── router/                           # Rotas protegidas por autenticação JWT
+        └── services/                         # Cliente Axios + Tipagens TypeScript
 ```
-
----
-
-## 🔌 Configurando GitHub Webhook
-
-1. No seu repositório GitHub, vá em **Settings → Webhooks → Add webhook**
-2. Configure:
-   - **Payload URL**: `http://seu-servidor/api/v1/webhooks/github`
-   - **Content type**: `application/json`
-   - **Secret**: O mesmo valor configurado em `GITHUB_WEBHOOK_SECRET` no `.env`
-   - **Events**: Selecione "Just the push event"
-3. Crie um projeto no DeployDock apontando para o repositório
-4. A cada `git push` na branch monitorada, o deploy será disparado automaticamente
 
 ---
 
 ## 📄 Licença
 
-Este projeto é parte de um Trabalho de Conclusão de Curso (TCC) em Ciência da Computação.
-
----
-
-## 👤 Autor
-
-Desenvolvido como projeto acadêmico — Bacharelado em Ciência da Computação.
+Este projeto foi desenvolvido como Trabalho de Conclusão de Curso (TCC) em Ciência da Computação.

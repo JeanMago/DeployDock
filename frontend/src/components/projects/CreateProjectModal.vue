@@ -12,7 +12,7 @@ const emit = defineEmits<{
 }>();
 
 const mode = ref<'template' | 'git'>('template');
-const selectedTemplate = ref<'static' | 'fastapi' | 'express' | 'custom'>('static');
+const selectedTemplate = ref<'static' | 'fastapi' | 'express' | 'flask' | 'adminer' | 'status_page' | 'custom'>('static');
 
 const form = ref({
   name: '',
@@ -63,14 +63,14 @@ const templates = [
   {
     id: 'static' as const,
     name: 'Site Estático / Nginx',
-    desc: 'HTML, CSS e JavaScript servidos via Nginx ultrarrápido',
+    desc: 'HTML, CSS e JavaScript servidos via Nginx Alpine',
     icon: Sparkles,
-    tag: 'Recomendado'
+    tag: 'Nginx'
   },
   {
     id: 'fastapi' as const,
     name: 'Python (FastAPI)',
-    desc: 'API REST moderna em Python assíncrono com Uvicorn',
+    desc: 'API REST assíncrona com Uvicorn e rota /health',
     icon: Code,
     tag: 'Python 3.11'
   },
@@ -80,6 +80,27 @@ const templates = [
     desc: 'Servidor web leve em JavaScript / Node.js 20',
     icon: Layers,
     tag: 'Node.js 20'
+  },
+  {
+    id: 'flask' as const,
+    name: 'Python (Flask + Gunicorn)',
+    desc: 'Microserviço web pronto para produção com Gunicorn',
+    icon: Code,
+    tag: 'Flask WSGI'
+  },
+  {
+    id: 'adminer' as const,
+    name: 'Adminer Database UI',
+    desc: 'Painel web 1-Click para gerenciar PostgreSQL/MySQL/SQLite',
+    icon: Layers,
+    tag: '1-Click DB UI'
+  },
+  {
+    id: 'status_page' as const,
+    name: 'Status Page Operacional',
+    desc: 'Página pública de status de infraestrutura pronta',
+    icon: Sparkles,
+    tag: '1-Click App'
   },
   {
     id: 'custom' as const,

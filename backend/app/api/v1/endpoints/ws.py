@@ -7,7 +7,9 @@ Endpoints WebSocket para streaming em tempo real.
 """
 
 import asyncio
+from datetime import datetime, timezone
 import threading
+import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.docker_service import DockerService
@@ -19,21 +21,20 @@ router = APIRouter()
 @router.websocket("/containers/{container_id}/logs")
 async def container_logs_ws(websocket: WebSocket, container_id: str) -> None:
     """
-    Streaming de logs de um contêiner em tempo real.
-
-    O docker-py é síncrono e bloqueante — usamos uma thread daemon
-    para alimentar uma asyncio.Queue que é consumida no event loop.
+    Streaming de novas linhas de log de um contêiner em tempo real.
+    Usa since=agora para enviar apenas eventos novos (o histórico é carregado via REST).
     """
     await ws_manager.connect(websocket, f"logs_{container_id}")
     loop = asyncio.get_running_loop()
-    log_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=500)
+    log_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
     stop_event = threading.Event()
+    start_ts = int(time.time())
 
     def _log_worker() -> None:
-        """Thread daemon que lê logs do Docker e enfileira linhas."""
+        """Thread daemon que lê logs em tempo real do Docker e enfileira linhas."""
         try:
             docker = DockerService()
-            for line in docker.stream_container_logs(container_id, tail=100):
+            for line in docker.stream_container_logs(container_id, tail=0, since=start_ts):
                 if stop_event.is_set():
                     break
                 loop.call_soon_threadsafe(log_queue.put_nowait, line)
@@ -59,11 +60,10 @@ async def container_logs_ws(websocket: WebSocket, container_id: str) -> None:
 
 
 @router.websocket("/containers/{container_id}/metrics")
+@router.websocket("/containers/{container_id}/stats")
 async def container_metrics_ws(websocket: WebSocket, container_id: str) -> None:
     """
     Streaming de métricas (CPU, memória, rede) a cada 2 segundos.
-
-    Usa asyncio.to_thread para cada chamada de stats, evitando bloquear o loop.
     """
     await ws_manager.connect(websocket, f"metrics_{container_id}")
     docker = DockerService()
@@ -72,9 +72,9 @@ async def container_metrics_ws(websocket: WebSocket, container_id: str) -> None:
         while True:
             try:
                 stats = await docker.get_container_stats(container_id)
-                await websocket.send_json({"type": "metrics", "data": stats})
+                stats["timestamp"] = datetime.now(timezone.utc).isoformat()
+                await websocket.send_json({"type": "metrics", "data": stats, **stats})
             except ValueError:
-                # Contêiner não encontrado — encerrar stream
                 await websocket.send_json({
                     "type": "error",
                     "data": {"message": "Contêiner não encontrado"},
@@ -91,6 +91,7 @@ async def container_metrics_ws(websocket: WebSocket, container_id: str) -> None:
         pass
     finally:
         ws_manager.disconnect(websocket, f"metrics_{container_id}")
+
 
 
 @router.websocket("/deployments/{deployment_id}/stream")

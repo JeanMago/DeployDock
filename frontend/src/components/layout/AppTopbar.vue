@@ -1,42 +1,48 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
-import { Bell, Menu, LogOut } from 'lucide-vue-next';
+import { useRoute, RouterLink } from 'vue-router';
+import { Menu, LogOut, HardDrive, ShieldCheck, Search } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { SystemInfo } from '@/services/types';
 import { useAuth } from '@/composables/useAuth';
 
-const { currentUser, logout } = useAuth();
+const { currentUser, logout, canAccessDocker } = useAuth();
 
-defineEmits<{ (e: 'toggle-sidebar'): void }>();
+defineEmits<{
+  (e: 'toggle-sidebar'): void;
+  (e: 'open-palette'): void;
+}>();
 const route = useRoute();
 
 const sysInfo = ref<SystemInfo | null>(null);
 
 const titlesMap: Record<string, string> = {
-  'Dashboard': 'Painel Geral',
-  'Containers': 'Contêineres Docker',
-  'ContainerDetail': 'Detalhes do Contêiner',
-  'Projects': 'Projetos GitOps',
-  'Deployments': 'Histórico de Deploys',
-  'Settings': 'Configurações do Sistema',
-  'Tutorial': 'Central de Ajuda & Guia'
+  Dashboard: 'Visão Geral',
+  Containers: 'Contêineres Docker',
+  ContainerDetail: 'Inspeção de Contêiner',
+  Projects: 'Projetos GitOps & 1-Click',
+  Deployments: 'Histórico de Deploys',
+  Resources: 'Recursos & Armazenamento',
+  Security: 'Segurança, WAF & Firewall',
+  Settings: 'Configurações do Sistema',
+  Tutorial: 'Documentação & Guia',
 };
 
 const pageTitle = computed(() => {
   const name = route.name?.toString() || '';
-  return titlesMap[name] || name || 'Painel Geral';
+  return titlesMap[name] || name || 'Visão Geral';
 });
 
 const loadMetrics = async () => {
+  if (!canAccessDocker.value) return;
   try {
     sysInfo.value = await api.system.info();
-  } catch (e) {
-    // Silently ignore if offline
+  } catch {
+    // Ignorar caso offline
   }
 };
 
-let intervalId: any = null;
+let intervalId: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
   loadMetrics();
@@ -49,54 +55,92 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="h-16 border-b border-dock-border/50 bg-dock-bg/80 backdrop-blur flex items-center justify-between px-6 sticky top-0 z-10">
-    <div class="flex items-center gap-4">
-      <button @click="$emit('toggle-sidebar')" class="lg:hidden p-2 -ml-2 text-dock-text-muted hover:text-dock-text rounded-md">
-        <Menu class="w-5 h-5" />
+  <header class="h-13 border-b border-dock-border bg-dock-surface flex items-center justify-between px-3.5 sm:px-6 shrink-0 z-10">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <button
+        @click="$emit('toggle-sidebar')"
+        class="lg:hidden p-1.5 -ml-1 text-dock-text-muted hover:text-dock-text hover:bg-dock-panel rounded cursor-pointer"
+        title="Abrir menu (ou arraste da esquerda para a direita)"
+      >
+        <Menu class="w-4 h-4" />
       </button>
-      <h1 class="text-xl font-semibold tracking-tight text-dock-text">{{ pageTitle }}</h1>
+      <div class="flex items-center gap-2 text-xs font-mono truncate">
+        <span class="text-dock-text-dim hidden sm:inline">infra</span>
+        <span class="text-dock-text-dim hidden sm:inline">/</span>
+        <h1 class="text-sm font-sans font-semibold text-dock-text truncate">{{ pageTitle }}</h1>
+      </div>
     </div>
 
-    <div class="flex items-center gap-4">
-      <div class="hidden md:flex items-center gap-3 px-3 py-1.5 rounded-full bg-dock-surface border border-dock-border text-sm">
-        <div class="flex items-center gap-1.5">
-          <span 
-            class="w-2 h-2 rounded-full"
-            :class="sysInfo && (sysInfo.containers_running || 0) > 0 ? 'bg-dock-success animate-pulse' : 'bg-dock-text-dim'"
-          ></span>
-          <span class="text-dock-text-muted">
-            {{ sysInfo?.containers_running || 0 }} em execução
-          </span>
-        </div>
-        <div class="w-px h-4 bg-dock-border"></div>
-        <div class="text-dock-text-muted">CPUs: <span class="text-dock-text font-mono">{{ sysInfo?.cpus || 0 }}</span></div>
-        <div class="w-px h-4 bg-dock-border"></div>
-        <div class="text-dock-text-muted">Memória: <span class="text-dock-text font-mono">{{ sysInfo?.memory_total_mb ? (sysInfo.memory_total_mb / 1024).toFixed(1) + ' GB' : '--' }}</span></div>
-      </div>
-
-      <button class="p-2 text-dock-text-muted hover:text-dock-accent hover:bg-dock-accent/10 rounded-full transition-colors relative" title="Notificações">
-        <Bell class="w-5 h-5" />
-        <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-dock-accent rounded-full border-2 border-dock-bg"></span>
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- Botão Busca Rápida no Mobile/Topbar -->
+      <button
+        @click="$emit('open-palette')"
+        class="p-1.5 sm:px-2.5 sm:py-1 rounded bg-dock-bg hover:bg-dock-panel border border-dock-border text-xs font-mono text-dock-text-muted hover:text-dock-text flex items-center gap-1.5 transition-colors cursor-pointer"
+        title="Busca Rápida (Ctrl+K)"
+      >
+        <Search class="w-3.5 h-3.5 text-dock-text-dim" />
+        <span class="hidden sm:inline text-[11px]">Ctrl+K</span>
       </button>
 
+      <!-- Escudo WAF Ativo -->
+      <RouterLink
+        to="/security"
+        class="flex items-center gap-1.5 px-2 py-1 rounded bg-dock-success/10 hover:bg-dock-success/20 border border-dock-success/30 text-[11px] font-mono text-dock-success transition-colors"
+        title="WAF & Proteção Contra Ataques Ativa"
+      >
+        <ShieldCheck class="w-3.5 h-3.5 shrink-0" />
+        <span class="hidden sm:inline">WAF Ativo</span>
+      </RouterLink>
+      <RouterLink
+        v-if="canAccessDocker"
+        to="/resources"
+        class="hidden md:flex items-center gap-3 px-2.5 py-1 rounded bg-dock-bg hover:bg-dock-panel border border-dock-border hover:border-dock-border-light text-xs font-mono transition-colors"
+        title="Abrir Monitor de Recursos & Disco"
+      >
+        <div class="flex items-center gap-1.5">
+          <span
+            class="w-1.5 h-1.5 rounded-full"
+            :class="sysInfo && (sysInfo.containers_running || 0) > 0 ? 'bg-dock-success' : 'bg-dock-text-dim'"
+          ></span>
+          <span class="text-dock-text-muted tabular-nums">
+            {{ sysInfo?.containers_running || 0 }}/{{ sysInfo?.containers_count || 0 }} ativos
+          </span>
+        </div>
+        <span class="text-dock-border">|</span>
+        <span class="text-dock-text-muted tabular-nums">
+          {{ sysInfo?.cpus || 0 }} vCPU
+        </span>
+        <span class="text-dock-border">|</span>
+        <span class="text-dock-text-muted tabular-nums flex items-center gap-1">
+          <HardDrive class="w-3 h-3 text-dock-text-dim" />
+          {{ sysInfo?.memory_total_mb ? (sysInfo.memory_total_mb / 1024).toFixed(1) + ' GB RAM' : '--' }}
+        </span>
+      </RouterLink>
+
       <!-- Usuário Logado e Logout -->
-      <div v-if="currentUser" class="flex items-center gap-2 pl-2 border-l border-dock-border">
-        <div class="hidden sm:flex flex-col text-right">
-          <span class="text-xs font-semibold text-dock-text leading-tight">{{ currentUser.username }}</span>
-          <span class="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded-full self-end mt-0.5"
-            :class="currentUser.role === 'admin' ? 'bg-dock-accent/15 text-dock-accent border border-dock-accent/30' : 'bg-dock-surface text-dock-text-dim border border-dock-border'"
+      <div v-if="currentUser" class="flex items-center gap-2.5 pl-3 border-l border-dock-border">
+        <div class="hidden sm:flex items-center gap-2 text-xs">
+          <span class="font-mono text-dock-text">{{ currentUser.username }}</span>
+          <span
+            class="text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase"
+            :class="
+              currentUser.role === 'admin'
+                ? 'bg-dock-panel text-dock-text border-dock-border-light'
+                : 'bg-dock-bg text-dock-text-dim border-dock-border'
+            "
           >
             {{ currentUser.role }}
           </span>
         </div>
         <button
           @click="logout"
-          class="p-2 text-dock-text-muted hover:text-dock-error hover:bg-dock-error/10 rounded-lg transition-colors cursor-pointer"
-          title="Encerrar Sessão (Sair)"
+          class="p-1.5 text-dock-text-dim hover:text-dock-error hover:bg-dock-panel rounded transition-colors cursor-pointer"
+          title="Encerrar sessão"
         >
-          <LogOut class="w-4 h-4" />
+          <LogOut class="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
   </header>
 </template>
+

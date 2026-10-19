@@ -1,11 +1,7 @@
-# Iniciar DeployDock (Backend + Frontend)
-Write-Host "Iniciando DeployDock..." -ForegroundColor Cyan
+# Iniciar DeployDock via WSL (Ubuntu)
+Write-Host "Iniciando DeployDock via WSL..." -ForegroundColor Cyan
 
-$root = $PSScriptRoot
+$winPath = $PSScriptRoot -replace '\\', '/'
+$wslPath = (wsl -d Ubuntu -- wslpath -a "$winPath").Trim()
+wsl -d Ubuntu -- bash -c "cd '$wslPath' && chmod +x start-dev.sh && ./start-dev.sh"
 
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$root\backend'; .\venv\Scripts\Activate.ps1; uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$root\frontend'; npm run dev"
-
-Write-Host "DeployDock iniciado com sucesso!" -ForegroundColor Green
-Write-Host "Frontend: http://localhost:3000" -ForegroundColor Yellow
-Write-Host "Backend API / Swagger: http://localhost:8000/docs" -ForegroundColor Yellow
