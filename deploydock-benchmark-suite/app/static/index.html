@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeployDock Benchmark & PaaS Comparison Suite v2.0 — Relatório Interativo & Laudo Técnico</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    :root {
+      --bg-dark: #060911;
+      --card-bg: rgba(15, 23, 42, 0.78);
+      --card-border: rgba(51, 65, 85, 0.55);
+    }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-dark);
+      background-image:
+        radial-gradient(at 12% 8%, rgba(14, 165, 233, 0.12) 0px, transparent 45%),
+        radial-gradient(at 88% 12%, rgba(99, 102, 241, 0.10) 0px, transparent 45%),
+        radial-gradient(at 50% 90%, rgba(16, 185, 129, 0.06) 0px, transparent 50%);
+      color: #f1f5f9;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    }
+    .glass-hover:hover {
+      border-color: rgba(56, 189, 248, 0.45);
+      transform: translateY(-1px);
+      transition: all 0.2s ease;
+    }
+    .tab-btn {
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 4px 20px rgba(2, 132, 199, 0.35);
+    }
+    .gauge-ring {
+      transition: stroke-dashoffset 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #060911; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="min-h-screen antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- Loading Overlay During Heavy Machine Stress Test -->
+  <div id="stress-overlay" class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass max-w-md w-full rounded-2xl p-6 text-center space-y-4 border-sky-500/40">
+      <div class="w-14 h-14 mx-auto rounded-2xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-2xl animate-pulse">
+        🔥
+      </div>
+      <h3 class="text-lg font-bold text-white">Executando Stress Test & Auditoria E2E...</h3>
+      <p id="stress-overlay-desc" class="text-xs text-slate-300">
+        Estressando todos os núcleos de CPU (SHA-512/PBKDF2/Matrizes), alocando buffers de Memória RAM, medindo IOPS de Disco 4K e validando os 45 testes E2E da API...
+      </p>
+      <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+        <div class="bg-gradient-to-r from-sky-400 via-indigo-500 to-emerald-400 h-full w-full animate-pulse"></div>
+      </div>
+      <div class="text-[11px] mono text-sky-400">Por favor, aguarde a conclusão das medições empíricas...</div>
+    </div>
+  </div>
+
+  <!-- Top Navigation Header -->
+  <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-[#060911]/90 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-sky-500/25 font-black text-xl border border-sky-400/30">
+          🐳
+        </div>
+        <div>
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <h1 class="text-base sm:text-lg font-extrabold tracking-tight text-white">
+              DeployDock Benchmark & Audit Suite <span class="text-xs font-semibold text-sky-400 mono">v2.0</span>
+            </h1>
+            <span id="badge-platform" class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">
+              Detectando...
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">
+            45 Testes E2E • Stress Test Multi-Core/RAM/IOPS • Auditoria Cgroups/Hardening • Comparador Multi-Plataforma
+          </p>
+        </div>
+      </div>
+
+      <!-- Control Toolbar -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-1 text-xs">
+          <span class="px-2 text-slate-400 font-medium">Carga:</span>
+          <select id="select-intensity" class="bg-slate-800 text-sky-300 font-semibold rounded px-2 py-1 border-none focus:outline-none cursor-pointer">
+            <option value="standard">Padrão (Rápido)</option>
+            <option value="heavy" selected>🔥 Intenso (Heavy Stress)</option>
+            <option value="extreme">⚡ Extremo (Torture Test)</option>
+          </select>
+        </div>
+
+        <button onclick="runLiveAudit()" id="btn-run-audit" class="px-3.5 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-sky-600/25 cursor-pointer">
+          <span>🚀</span> <span id="btn-run-text">Executar Stress & Auditoria</span>
+        </button>
+
+        <button onclick="openPrintableDocument()" class="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-emerald-600/20 cursor-pointer" title="Abre o Laudo Técnico Formal pronto para impressão ou salvar em PDF">
+          <span>📄</span> Gerar Documento / PDF
+        </button>
+
+        <button onclick="downloadMarkdownDocument()" class="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer" title="Baixar Relatório Técnico em Markdown (.md)">
+          <span>📝</span> Baixar .MD
+        </button>
+
+        <button onclick="downloadStandaloneHTML()" class="px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 cursor-pointer" title="Baixar este painel interativo completo em um único arquivo .html">
+          <span>📊</span> HTML Interativo
+        </button>
+
+        <label class="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 transition flex items-center gap-1.5 cursor-pointer" title="Importar snapshot .json gerado no Portainer, Coolify, CapRover ou Dokploy">
+          <span>📤</span> Importar JSON
+          <input type="file" id="input-import-json" accept=".json" class="hidden" onchange="handleImportJSON(event)" />
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Notification Banner -->
+    <div id="alert-banner" class="hidden rounded-xl p-3.5 text-xs sm:text-sm border flex items-center justify-between"></div>
+
+    <!-- Executive Score Gauges + Hardware Highlights -->
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Gauge 1: Overall Platform Score -->
+      <div class="glass glass-hover rounded-2xl p-4 flex items-center gap-4">
+        <div class="relative w-20 h-20 shrink-0">
+          <svg class="w-20 h-20" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" stroke="#1e293b" stroke-width="7" fill="none" />
+            <circle id="ring-overall" class="gauge-ring" cx="40" cy="40" r="34" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" fill="none" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span id="kpi-overall-score" class="text-xl font-black text-white">--</span>
+            <span class="text-[9px] text-slate-400 uppercase font-bold">Pontos</span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-sky-400">Score Global PaaS</span>
+          <h3 id="kpi-platform-title" class="text-sm font-bold text-white truncate mt-0.5">DeployDock PaaS</h3>
+          <p id="kpi-platform-sub" class="text-xs text-slate-400 mt-1 truncate">17/17 critérios técnicos</p>
+        </div>
+      </div>
+
+      <!-- Gauge 2: E2E Test Pass Rate -->
+      <div class="glass glass-hover rounded-2xl p-4 flex items-center gap-4">
+        <div class="relative w-20 h-20 shrink-0">
+          <svg class="w-20 h-20" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" stroke="#1e293b" stroke-width="7" fill="none" />
+            <circle id="ring-e2e" class="gauge-ring" cx="40" cy="40" r="34" stroke="#10b981" stroke-width="7" stroke-linecap="round" fill="none" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span id="kpi-e2e-rate" class="text-lg font-black text-emerald-400">--%</span>
+            <span class="text-[9px] text-slate-400 uppercase font-bold">Aprovado</span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Suite E2E Completa</span>
+          <h3 id="kpi-e2e-passed" class="text-lg font-black text-white mt-0.5">-- / -- Testes</h3>
+          <p id="kpi-e2e-sub" class="text-xs text-slate-400 mt-0.5 truncate">API & Funcionalidades</p>
+        </div>
+      </div>
+
+      <!-- Gauge 3: Security & Hardening Score -->
+      <div class="glass glass-hover rounded-2xl p-4 flex items-center gap-4">
+        <div class="relative w-20 h-20 shrink-0">
+          <svg class="w-20 h-20" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" stroke="#1e293b" stroke-width="7" fill="none" />
+            <circle id="ring-sec" class="gauge-ring" cx="40" cy="40" r="34" stroke="#a855f7" stroke-width="7" stroke-linecap="round" fill="none" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span id="kpi-security-score" class="text-xl font-black text-purple-400">--</span>
+            <span class="text-[9px] text-slate-400 uppercase font-bold">Segurança</span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-purple-400">Hardening & WAF</span>
+          <h3 id="kpi-security-title" class="text-sm font-bold text-white mt-0.5">Isolamento Cgroup v2</h3>
+          <p id="kpi-security-sub" class="text-xs text-slate-400 mt-1 truncate">NoNewPrivs + PIDs Limit</p>
+        </div>
+      </div>
+
+      <!-- Gauge 4: Machine Stress & Performance -->
+      <div class="glass glass-hover rounded-2xl p-4 flex items-center gap-4">
+        <div class="relative w-20 h-20 shrink-0">
+          <svg class="w-20 h-20" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" stroke="#1e293b" stroke-width="7" fill="none" />
+            <circle id="ring-perf" class="gauge-ring" cx="40" cy="40" r="34" stroke="#f59e0b" stroke-width="7" stroke-linecap="round" fill="none" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span id="kpi-perf-score" class="text-xl font-black text-amber-400">--</span>
+            <span class="text-[9px] text-slate-400 uppercase font-bold">Hardware</span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Stress Multi-Core</span>
+          <h3 id="kpi-cpu-multi" class="text-sm font-bold text-white mono mt-0.5">-- ops/s</h3>
+          <p id="kpi-disk-sub" class="text-xs text-slate-400 mt-1 truncate">IOPS 4K: -- • RAM: -- MB/s</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Secondary Hardware Telemetry Strip -->
+    <section class="glass rounded-xl p-3.5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-center">
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">CPU Single-Core</div>
+        <div id="strip-cpu-single" class="text-xs sm:text-sm font-bold text-sky-300 mono mt-0.5">--</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">CPU Multi-Core</div>
+        <div id="strip-cpu-multi" class="text-xs sm:text-sm font-bold text-emerald-300 mono mt-0.5">--</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Ponto Flutuante</div>
+        <div id="strip-mflops" class="text-xs sm:text-sm font-bold text-purple-300 mono mt-0.5">-- MFLOPS</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Compressão Zlib</div>
+        <div id="strip-comp" class="text-xs sm:text-sm font-bold text-indigo-300 mono mt-0.5">-- MB/s</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Banda de RAM</div>
+        <div id="strip-ram-bw" class="text-xs sm:text-sm font-bold text-amber-300 mono mt-0.5">-- MB/s</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Disco Escrita/Leitura</div>
+        <div id="strip-disk-rw" class="text-xs sm:text-sm font-bold text-white mono mt-0.5">-- / --</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Disco Random 4K</div>
+        <div id="strip-iops" class="text-xs sm:text-sm font-bold text-rose-300 mono mt-0.5">-- IOPS</div>
+      </div>
+      <div class="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+        <div class="text-[10px] text-slate-400 uppercase font-semibold">Rede Concorrente</div>
+        <div id="strip-net-rps" class="text-xs sm:text-sm font-bold text-teal-300 mono mt-0.5">-- req/s</div>
+      </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
+      <button onclick="switchTab('tab-comparison')" id="btn-tab-comparison" class="tab-btn active px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-700 bg-slate-900/80 text-slate-300 cursor-pointer">
+        📊 1. Comparativo Multi-Plataforma
+      </button>
+      <button onclick="switchTab('tab-stress')" id="btn-tab-stress" class="tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-700 bg-slate-900/80 text-slate-300 cursor-pointer">
+        🔥 2. Stress Test de Máquina & Telemetria
+      </button>
+      <button onclick="switchTab('tab-e2e')" id="btn-tab-e2e" class="tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-700 bg-slate-900/80 text-slate-300 cursor-pointer">
+        🧪 3. Testes E2E DeployDock (<span id="tab-badge-e2e">45</span>)
+      </button>
+      <button onclick="switchTab('tab-container')" id="btn-tab-container" class="tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-700 bg-slate-900/80 text-slate-300 cursor-pointer">
+        🛡️ 4. Sonda Interna (Cgroups, Hardening & .env)
+      </button>
+      <button onclick="switchTab('tab-document')" id="btn-tab-document" class="tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-700 bg-slate-900/80 text-slate-300 cursor-pointer">
+        📄 5. Documento Técnico Formal & Laboratório Chaos
+      </button>
+    </nav>
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: COMPARATIVO MULTI-PLATAFORMA                                  -->
+    <!-- =================================================================== -->
+    <section id="tab-comparison" class="space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="glass rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-sm font-bold text-white">Radar Multidimensional de Capacidades PaaS & Segurança</h2>
+              <p class="text-xs text-slate-400">DeployDock vs Portainer CE vs Coolify v4 vs CapRover vs Dokploy</p>
+            </div>
+          </div>
+          <div class="h-80 flex items-center justify-center">
+            <canvas id="chart-radar"></canvas>
+          </div>
+        </div>
+
+        <div class="glass rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-sm font-bold text-white">Score Global Ponderado vs Consumo de Memória em Idle (MB)</h2>
+              <p class="text-xs text-slate-400">Avaliação de riqueza funcional vs leveza de recursos no servidor</p>
+            </div>
+          </div>
+          <div class="h-80 flex items-center justify-center">
+            <canvas id="chart-bars"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hardware & Runtime Comparison Table -->
+      <div class="glass rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white">⚡ Tabela Comparativa de Stress Benchmark & Eficiência de Runtime</h2>
+            <p class="text-xs text-slate-400">
+              Para adicionar outra execução real: rode este contêiner em outro software Docker, clique em <strong>Exportar JSON</strong> e importe no botão do topo.
+            </p>
+          </div>
+          <button onclick="exportSnapshotJSON()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 cursor-pointer">
+            📥 Exportar Snapshot JSON Atual
+          </button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 text-[11px] uppercase">
+                <th class="py-3 px-3">Plataforma / Gerenciador</th>
+                <th class="py-3 px-3">Score Global</th>
+                <th class="py-3 px-3">CPU Single (ops/s)</th>
+                <th class="py-3 px-3">CPU Multi-Core (ops/s)</th>
+                <th class="py-3 px-3">MFLOPS</th>
+                <th class="py-3 px-3">Memória (MB/s)</th>
+                <th class="py-3 px-3">Disco W / R (MB/s)</th>
+                <th class="py-3 px-3">Random 4K IOPS</th>
+                <th class="py-3 px-3">RAM Base</th>
+              </tr>
+            </thead>
+            <tbody id="table-perf-comparison" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 17-Point Feature Matrix -->
+      <div class="glass rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white">📋 Matriz Comparativa de Funcionalidades Suportadas (17 Critérios Técnicos)</h2>
+            <p class="text-xs text-slate-400">Comparação de recursos nativos verificados na auditoria</p>
+          </div>
+          <select id="filter-matrix-category" onchange="renderComparisonMatrix()" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+            <option value="ALL">Todas as Categorias</option>
+            <option value="Segurança & WAF">Segurança & WAF</option>
+            <option value="Hardening de Contêiner">Hardening de Contêiner</option>
+            <option value="GitOps & Deploy">GitOps & Deploy</option>
+            <option value="Contêineres & Arquivos">Contêineres & Arquivos</option>
+            <option value="Observabilidade">Observabilidade</option>
+            <option value="Backups & Persistência">Backups & Persistência</option>
+          </select>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead id="matrix-thead"></thead>
+            <tbody id="matrix-tbody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: STRESS TEST DE MÁQUINA & TELEMETRIA EM TEMPO REAL            -->
+    <!-- =================================================================== -->
+    <section id="tab-stress" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Time-Series Telemetry Curve -->
+        <div class="glass rounded-2xl p-5">
+          <h3 class="text-sm font-bold text-white mb-1">📈 Curva de Telemetria da Máquina Durante o Stress Test (CPU % & RAM MB)</h3>
+          <p class="text-xs text-slate-400 mb-3">Amostragem capturada em tempo real a cada 120ms durante a execução das fases de estresse</p>
+          <div class="h-72">
+            <canvas id="chart-telemetry-timeline"></canvas>
+          </div>
+        </div>
+
+        <!-- Multi-Core vs Single-Core Chart -->
+        <div class="glass rounded-2xl p-5">
+          <h3 class="text-sm font-bold text-white mb-1">⚡ Comparativo de Throughput CPU Single-Core vs Multi-Core Paralelo</h3>
+          <p class="text-xs text-slate-400 mb-3">Escalabilidade SMP em operações criptográficas SHA-512 + PBKDF2-HMAC-SHA256</p>
+          <div class="h-72">
+            <canvas id="chart-cpu-scaling"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detailed Stress Breakdown Cards -->
+      <div id="stress-details-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: TESTES E2E DE TODAS AS FUNCIONALIDADES DO DEPLOYDOCK (45)     -->
+    <!-- =================================================================== -->
+    <section id="tab-e2e" class="hidden space-y-6">
+      <div class="glass rounded-2xl p-5">
+        <h3 class="text-sm font-bold text-white mb-1">⏱️ Latência Média de Resposta da API por Domínio Funcional (ms)</h3>
+        <p class="text-xs text-slate-400 mb-3">Tempo médio de execução de cada grupo de testes na bateria End-to-End</p>
+        <div class="h-56">
+          <canvas id="chart-e2e-latency"></canvas>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Relatório Analítico dos Testes End-to-End (E2E)</h2>
+            <p id="e2e-api-status" class="text-xs text-slate-400 mt-0.5"></p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              id="search-e2e"
+              oninput="renderE2ETests()"
+              placeholder="Filtrar por nome, rota ou evidência..."
+              class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 w-60"
+            />
+            <select id="filter-e2e-cat" onchange="renderE2ETests()" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+              <option value="ALL">Todas as Categorias</option>
+              <option value="Autenticação & RBAC">Autenticação & RBAC</option>
+              <option value="Segurança & WAF">Segurança & WAF</option>
+              <option value="Observabilidade & Host">Observabilidade & Host</option>
+              <option value="Gestão de Contêineres">Gestão de Contêineres</option>
+              <option value="Explorador de Arquivos">Explorador de Arquivos</option>
+              <option value="Projetos & GitOps">Projetos & GitOps</option>
+              <option value="Backups & Persistência">Backups & Persistência</option>
+            </select>
+            <select id="filter-e2e-status" onchange="renderE2ETests()" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+              <option value="ALL">Todos os Status</option>
+              <option value="PASSED">✅ Aprovados (PASSED)</option>
+              <option value="FAILED">❌ Falhos (FAILED)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="e2e-tests-container" class="space-y-2.5"></div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: SONDA INTERNA DO CONTÊINER (CGROUPS, HARDENING, REDE, .ENV)   -->
+    <!-- =================================================================== -->
+    <section id="tab-container" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="glass rounded-2xl p-5">
+          <h3 class="text-sm font-bold text-white mb-1">🛡️ Auditoria de Hardening & Isolamento do Contêiner</h3>
+          <p class="text-xs text-slate-400 mb-4">Inspeção de Kernel em <code class="mono text-sky-400">/proc/self/status</code>, Capabilities e Cgroups</p>
+          <div id="security-checks-list" class="space-y-3"></div>
+        </div>
+
+        <div class="glass rounded-2xl p-5 space-y-4">
+          <div>
+            <h3 class="text-sm font-bold text-white mb-1">⚙️ Quotas de Recursos (Cgroups) & Orquestrador</h3>
+            <p class="text-xs text-slate-400 mb-3">Métricas extraídas diretamente do subsistema Cgroup do Kernel Linux</p>
+            <div id="cgroups-details" class="grid grid-cols-2 gap-3 text-xs"></div>
+          </div>
+
+          <div class="border-t border-slate-800 pt-4">
+            <h3 class="text-sm font-bold text-white mb-2">🌐 Rede, Proxy Reverso & DNS Interno</h3>
+            <div id="network-details" class="space-y-2 text-xs text-slate-300"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-5">
+        <h3 class="text-sm font-bold text-white mb-1">🔐 Variáveis de Ambiente Injetadas (<code class="mono text-sky-400">os.environ</code>)</h3>
+        <p class="text-xs text-slate-400 mb-3">Valida a injeção de variáveis <code class="mono">.env</code> pela plataforma (segredos são mascarados automaticamente)</p>
+        <div id="env-vars-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-2 text-xs mono"></div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 5: DOCUMENTO TÉCNICO FORMAL & LABORATÓRIO CHAOS                  -->
+    <!-- =================================================================== -->
+    <section id="tab-document" class="hidden space-y-6">
+      <!-- Formal Document Generator & Viewer -->
+      <div class="glass rounded-2xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-bold text-white">📄 Laudo Técnico Oficial de Auditoria e Benchmark (TCC / Documentação)</h2>
+            <p class="text-xs text-slate-400">
+              Documento técnico completo gerado automaticamente com todos os resultados empíricos, tabelas comparativas e hash SHA-256 de integridade.
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="openPrintableDocument()" class="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer">
+              🖨️ Abrir Laudo Formatado para Impressão / PDF
+            </button>
+            <button onclick="downloadMarkdownDocument()" class="px-4 py-2 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white cursor-pointer">
+              📥 Baixar Documento em Markdown (.md)
+            </button>
+            <button onclick="copyMarkdownDocument()" class="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer">
+              📋 Copiar Markdown
+            </button>
+          </div>
+        </div>
+        <pre id="markdown-doc-preview" class="bg-slate-950/90 border border-slate-800 rounded-xl p-4 text-xs mono text-slate-300 max-h-96 overflow-y-auto whitespace-pre-wrap"></pre>
+      </div>
+
+      <!-- Chaos & Feature Lab -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="glass rounded-2xl p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white">💓 Simulador de Health Check & Auto-Heal</h3>
+            <span id="badge-health-state" class="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">200 OK</span>
+          </div>
+          <p class="text-xs text-slate-400">
+            Altere o status do endpoint <code class="mono text-sky-400">GET /health</code> para testar como o <strong>DeployDock</strong> reage a falhas e aciona o <strong>Auto-Healing / Rollback</strong>.
+          </p>
+          <div class="space-y-2">
+            <label class="block text-xs text-slate-300">Latência Artificial no <code class="mono">/health</code> (ms):</label>
+            <input type="number" id="input-health-delay" value="0" min="0" max="10000" step="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          </div>
+          <div class="flex flex-wrap gap-2 pt-2">
+            <button onclick="setHealthState(true, 200)" class="flex-1 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer">
+              ✅ Saudável (HTTP 200)
+            </button>
+            <button onclick="setHealthState(false, 500)" class="flex-1 py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer">
+              💥 Simular Queda (500)
+            </button>
+          </div>
+        </div>
+
+        <div class="glass rounded-2xl p-5 space-y-4">
+          <h3 class="text-sm font-bold text-white">📜 Gerador de Logs Multi-Nível</h3>
+          <p class="text-xs text-slate-400">
+            Dispare logs no <code class="mono text-sky-400">stdout</code> / <code class="mono text-rose-400">stderr</code> do contêiner para testar os filtros <code class="mono">INFO</code>, <code class="mono">WARN</code> e <code class="mono">ERROR</code> da plataforma.
+          </p>
+          <input type="text" id="input-log-msg" placeholder="Mensagem customizada opcional..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" />
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="emitLogs('INFO', 15)" class="py-2 px-3 rounded-lg bg-sky-600/30 hover:bg-sky-600/50 border border-sky-500/40 text-sky-300 text-xs font-semibold cursor-pointer">
+              +15 Logs [INFO]
+            </button>
+            <button onclick="emitLogs('WARN', 15)" class="py-2 px-3 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 text-amber-300 text-xs font-semibold cursor-pointer">
+              +15 Logs [WARN]
+            </button>
+            <button onclick="emitLogs('ERROR', 15)" class="py-2 px-3 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-300 text-xs font-semibold cursor-pointer">
+              +15 Logs [ERROR]
+            </button>
+            <button onclick="emitLogs('ALL', 30)" class="py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer">
+              🚀 Rajada Mista (30)
+            </button>
+          </div>
+          <div id="log-output-preview" class="text-[11px] mono bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-400 max-h-24 overflow-y-auto">
+            Aguardando disparo de logs...
+          </div>
+        </div>
+
+        <div class="glass rounded-2xl p-5 space-y-4">
+          <h3 class="text-sm font-bold text-white">📁 Sonda de Arquivos (<code class="mono text-sky-400">/app/workspace</code>)</h3>
+          <p class="text-xs text-slate-400">
+            Crie arquivos aqui e inspecione-os pelo <strong>Explorador de Arquivos</strong> da plataforma Docker.
+          </p>
+          <div class="flex gap-2">
+            <input type="text" id="input-ws-filename" value="laudo_verificacao.txt" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white mono" />
+            <input type="text" id="input-ws-content" value="Persistência validada com sucesso!" class="w-1/2 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+          </div>
+          <button onclick="createWorkspaceFile()" class="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer">
+            💾 Gravar Arquivo no Contêiner
+          </button>
+          <div id="workspace-files-list" class="space-y-1.5 max-h-28 overflow-y-auto text-xs"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-8 border-t border-slate-800/80 mt-8 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500">
+    <div>DeployDock Benchmark & PaaS Comparison Suite v2.0 • 45 Testes E2E + Stress Test Multi-Core + Gerador de Laudo Técnico</div>
+    <div id="footer-sha256" class="mono text-[11px] text-slate-400">SHA-256: --</div>
+  </footer>
+
+  <!-- Embedded Report Data Placeholder for Standalone HTML Exports -->
+  <script id="embedded-report-script">
+    window.__EMBEDDED_REPORT__ = null;
+  </script>
+
+  <script>
+    let reportData = null;
+    let radarChartInstance = null;
+    let barChartInstance = null;
+    let telemetryChartInstance = null;
+    let cpuScalingChartInstance = null;
+    let e2eLatencyChartInstance = null;
+
+    function setRingProgress(elementId, percent) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      const circumference = 213.6;
+      const clamped = Math.max(0, Math.min(100, percent || 0));
+      el.style.strokeDashoffset = circumference - (clamped / 100) * circumference;
+    }
+
+    function showBanner(msg, type = 'info') {
+      const el = document.getElementById('alert-banner');
+      el.classList.remove('hidden', 'bg-sky-500/15', 'border-sky-500/40', 'text-sky-300', 'bg-emerald-500/15', 'border-emerald-500/40', 'text-emerald-300', 'bg-rose-500/15', 'border-rose-500/40', 'text-rose-300');
+      if (type === 'success') {
+        el.classList.add('bg-emerald-500/15', 'border-emerald-500/40', 'text-emerald-300');
+      } else if (type === 'error') {
+        el.classList.add('bg-rose-500/15', 'border-rose-500/40', 'text-rose-300');
+      } else {
+        el.classList.add('bg-sky-500/15', 'border-sky-500/40', 'text-sky-300');
+      }
+      el.innerHTML = `<span>${msg}</span><button onclick="document.getElementById('alert-banner').classList.add('hidden')" class="text-xs underline ml-4 cursor-pointer">Fechar</button>`;
+    }
+
+    function switchTab(tabId) {
+      ['tab-comparison', 'tab-stress', 'tab-e2e', 'tab-container', 'tab-document'].forEach(id => {
+        document.getElementById(id).classList.toggle('hidden', id !== tabId);
+        const btn = document.getElementById('btn-' + id);
+        if (btn) btn.classList.toggle('active', id === tabId);
+      });
+    }
+
+    async function loadInitialReport() {
+      if (window.__EMBEDDED_REPORT__) {
+        reportData = window.__EMBEDDED_REPORT__;
+        renderAll();
+        showBanner('📄 Modo Relatório Interativo Standalone carregado. Todos os gráficos, filtros, documentos e importação de JSON estão disponíveis offline!', 'info');
+        return;
+      }
+      try {
+        const res = await fetch('/api/audit/latest');
+        reportData = await res.json();
+        renderAll();
+      } catch (err) {
+        showBanner('Erro ao carregar dados iniciais: ' + err.message, 'error');
+      }
+    }
+
+    async function runLiveAudit() {
+      if (window.__EMBEDDED_REPORT__ && window.location.protocol === 'file:') {
+        showBanner('Você está visualizando um arquivo HTML exportado offline. Para reexecutar o stress test na máquina, acesse a aplicação rodando no servidor/contêiner.', 'info');
+        return;
+      }
+      const intensity = document.getElementById('select-intensity').value || 'heavy';
+      const overlay = document.getElementById('stress-overlay');
+      const btn = document.getElementById('btn-run-audit');
+      overlay.classList.remove('hidden');
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/audit/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intensity })
+        });
+        reportData = await res.json();
+        renderAll();
+        showBanner(`🔥 Stress Test (${intensity.toUpperCase()}) & 45 Testes E2E concluídos em ${reportData.audit_duration_ms} ms! Laudo Técnico atualizado.`, 'success');
+      } catch (err) {
+        showBanner('Falha ao executar auditoria: ' + err.message, 'error');
+      } finally {
+        overlay.classList.add('hidden');
+        btn.disabled = false;
+      }
+    }
+
+    function renderAll() {
+      if (!reportData) return;
+      const snap = reportData.current_platform_snapshot || {};
+      const e2e = reportData.deploydock_e2e || {};
+      const sec = reportData.security || {};
+      const perf = reportData.performance || {};
+      const cpu = perf.cpu || {};
+      const mem = perf.memory || {};
+      const disk = perf.disk_io || {};
+      const net = perf.network_concurrency || {};
+
+      // Top Badges & Gauges
+      document.getElementById('badge-platform').textContent = snap.platform_name || 'DeployDock PaaS';
+      document.getElementById('kpi-overall-score').textContent = snap.overall_score || 100;
+      document.getElementById('kpi-platform-title').textContent = snap.platform_name || 'DeployDock PaaS';
+      document.getElementById('kpi-platform-sub').textContent = `Score Funcional: ${snap.feature_score || 100}% • ${new Date(reportData.generated_at).toLocaleTimeString()}`;
+      setRingProgress('ring-overall', snap.overall_score || 100);
+
+      if (e2e && e2e.api_reachable) {
+        document.getElementById('kpi-e2e-passed').textContent = `${e2e.passed_tests} / ${e2e.total_tests} Testes`;
+        document.getElementById('kpi-e2e-rate').textContent = `${e2e.pass_rate_percent}%`;
+        document.getElementById('kpi-e2e-sub').textContent = `API: ${e2e.api_url} (${e2e.duration_ms} ms)`;
+        document.getElementById('tab-badge-e2e').textContent = `${e2e.passed_tests}/${e2e.total_tests}`;
+        setRingProgress('ring-e2e', e2e.pass_rate_percent);
+      } else {
+        document.getElementById('kpi-e2e-passed').textContent = 'Modo Portável';
+        document.getElementById('kpi-e2e-rate').textContent = 'Sonda';
+        document.getElementById('kpi-e2e-sub').textContent = 'Comparação Multi-Plataforma';
+        document.getElementById('tab-badge-e2e').textContent = '0';
+        setRingProgress('ring-e2e', 100);
+      }
+
+      document.getElementById('kpi-security-score').textContent = sec.hardening_score || 100;
+      document.getElementById('kpi-security-sub').textContent = `NoNewPrivs=${sec.no_new_privileges ? 'Sim' : 'Não'} • PIDs=${sec.pids_limit || 'Max'}`;
+      setRingProgress('ring-sec', sec.hardening_score || 100);
+
+      document.getElementById('kpi-perf-score').textContent = perf.composite_performance_score || 95;
+      document.getElementById('kpi-cpu-multi').textContent = `${(cpu.multi_core_ops_per_sec || cpu.cpu_ops_per_sec || 0).toLocaleString('pt-BR')} ops/s`;
+      document.getElementById('kpi-disk-sub').textContent = `4K: ${(disk.random_4k_iops || 0).toLocaleString('pt-BR')} IOPS • RAM: ${mem.memory_throughput_mb_s || 0} MB/s`;
+      setRingProgress('ring-perf', perf.composite_performance_score || 95);
+
+      // Hardware Strip
+      document.getElementById('strip-cpu-single').textContent = `${(cpu.single_core_ops_per_sec || cpu.cpu_ops_per_sec || 0).toLocaleString('pt-BR')} ops/s`;
+      document.getElementById('strip-cpu-multi').textContent = `${(cpu.multi_core_ops_per_sec || 0).toLocaleString('pt-BR')} (${cpu.multicore_scaling_ratio || 1}x)`;
+      document.getElementById('strip-mflops').textContent = `${cpu.floating_point_mflops || 0} MFLOPS`;
+      document.getElementById('strip-comp').textContent = `${cpu.compression_throughput_mb_s || 0} MB/s`;
+      document.getElementById('strip-ram-bw').textContent = `${mem.memory_throughput_mb_s || 0} MB/s`;
+      document.getElementById('strip-disk-rw').textContent = `${disk.write_speed_mb_s || 0} / ${disk.read_speed_mb_s || 0} MB/s`;
+      document.getElementById('strip-iops').textContent = `${(disk.random_4k_iops || 0).toLocaleString('pt-BR')} IOPS`;
+      document.getElementById('strip-net-rps').textContent = `${(net.requests_per_sec || 0).toLocaleString('pt-BR')} req/s`;
+
+      if (reportData.integrity_sha256) {
+        document.getElementById('footer-sha256').textContent = `SHA-256: ${reportData.integrity_sha256.slice(0, 32)}...`;
+      }
+      if (reportData.markdown_document) {
+        document.getElementById('markdown-doc-preview').textContent = reportData.markdown_document;
+      }
+
+      renderComparisonCharts();
+      renderStressChartsAndCards();
+      renderPerformanceTable();
+      renderComparisonMatrix();
+      renderE2ETests();
+      renderContainerProbe();
+      renderWorkspaceFiles();
+    }
+
+    function renderComparisonCharts() {
+      const platforms = reportData.comparison_platforms || [];
+      const palette = [
+        { border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.24)' },
+        { border: '#10b981', bg: 'rgba(16, 185, 129, 0.16)' },
+        { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)' },
+        { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)' },
+        { border: '#f43f5e', bg: 'rgba(244, 63, 94, 0.14)' }
+      ];
+
+      const ctxRadar = document.getElementById('chart-radar').getContext('2d');
+      if (radarChartInstance) radarChartInstance.destroy();
+      radarChartInstance = new Chart(ctxRadar, {
+        type: 'radar',
+        data: {
+          labels: [
+            'Segurança & WAF',
+            'Hardening Contêiner',
+            'GitOps & Previews',
+            'Observabilidade & Uptime',
+            'File Explorer & Backups',
+            'Eficiência & Performance'
+          ],
+          datasets: platforms.slice(0, 5).map((p, idx) => {
+            const c = palette[idx % palette.length];
+            const r = p.radar_scores || {};
+            return {
+              label: p.platform_name,
+              data: [
+                r.security_waf || 50,
+                r.container_hardening || 50,
+                r.gitops_deploy || 50,
+                r.observability || 50,
+                r.files_and_backups || 50,
+                r.efficiency || 50
+              ],
+              borderColor: c.border,
+              backgroundColor: c.bg,
+              borderWidth: idx === 0 ? 3 : 1.8,
+              pointRadius: idx === 0 ? 4 : 2.5
+            };
+          })
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 20, color: '#64748b', backdropColor: 'transparent' },
+              grid: { color: 'rgba(148, 163, 184, 0.15)' },
+              angleLines: { color: 'rgba(148, 163, 184, 0.15)' },
+              pointLabels: { color: '#cbd5e1', font: { size: 11, weight: '600' } }
+            }
+          },
+          plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 11 } } } }
+        }
+      });
+
+      const ctxBars = document.getElementById('chart-bars').getContext('2d');
+      if (barChartInstance) barChartInstance.destroy();
+      barChartInstance = new Chart(ctxBars, {
+        type: 'bar',
+        data: {
+          labels: platforms.map(p => p.platform_name),
+          datasets: [
+            {
+              label: 'Score Global Ponderado (0-100)',
+              data: platforms.map(p => p.overall_score),
+              backgroundColor: platforms.map((_, i) => i === 0 ? '#0ea5e9' : '#334155'),
+              borderRadius: 6
+            },
+            {
+              label: 'Consumo RAM Base em Idle (MB / 10)',
+              data: platforms.map(p => Math.round((p.idle_ram_mb || 100) / 10)),
+              backgroundColor: platforms.map((_, i) => i === 0 ? '#10b981' : '#64748b'),
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.1)' }, ticks: { color: '#94a3b8' } },
+            x: { grid: { display: false }, ticks: { color: '#cbd5e1', font: { size: 11 } } }
+          },
+          plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 11 } } } }
+        }
+      });
+    }
+
+    function renderStressChartsAndCards() {
+      const perf = reportData.performance || {};
+      const timeline = perf.telemetry_timeline || [];
+      const cpu = perf.cpu || {};
+      const mem = perf.memory || {};
+      const disk = perf.disk_io || {};
+      const net = perf.network_concurrency || {};
+
+      // 1. Telemetry Timeline Chart
+      const ctxTel = document.getElementById('chart-telemetry-timeline').getContext('2d');
+      if (telemetryChartInstance) telemetryChartInstance.destroy();
+      telemetryChartInstance = new Chart(ctxTel, {
+        type: 'line',
+        data: {
+          labels: timeline.map(s => `${s.elapsed_ms}ms`),
+          datasets: [
+            {
+              label: 'Uso de CPU da Máquina (%)',
+              data: timeline.map(s => s.cpu_percent),
+              borderColor: '#38bdf8',
+              backgroundColor: 'rgba(56, 189, 248, 0.15)',
+              fill: true,
+              tension: 0.35,
+              yAxisID: 'y'
+            },
+            {
+              label: 'Memória Alocada no Contêiner (MB)',
+              data: timeline.map(s => s.memory_mb),
+              borderColor: '#a855f7',
+              backgroundColor: 'rgba(168, 85, 247, 0.1)',
+              fill: true,
+              tension: 0.35,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { type: 'linear', position: 'left', min: 0, max: 100, title: { display: true, text: 'CPU %', color: '#38bdf8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+            y1: { type: 'linear', position: 'right', title: { display: true, text: 'RAM (MB)', color: '#a855f7' }, ticks: { color: '#94a3b8' }, grid: { drawOnChartArea: false } },
+            x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { display: false } }
+          },
+          plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 11 } } } }
+        }
+      });
+
+      // 2. CPU Scaling Chart
+      const platforms = reportData.comparison_platforms || [];
+      const ctxCpu = document.getElementById('chart-cpu-scaling').getContext('2d');
+      if (cpuScalingChartInstance) cpuScalingChartInstance.destroy();
+      cpuScalingChartInstance = new Chart(ctxCpu, {
+        type: 'bar',
+        data: {
+          labels: platforms.map(p => p.platform_name),
+          datasets: [
+            {
+              label: 'Single-Core (ops/s)',
+              data: platforms.map(p => (p.benchmark && p.benchmark.cpu_ops_per_sec) || 0),
+              backgroundColor: '#0284c7',
+              borderRadius: 5
+            },
+            {
+              label: 'Multi-Core Paralelo (ops/s)',
+              data: platforms.map(p => (p.benchmark && p.benchmark.multi_core_ops_per_sec) || 0),
+              backgroundColor: '#10b981',
+              borderRadius: 5
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+            x: { ticks: { color: '#cbd5e1', font: { size: 10 } }, grid: { display: false } }
+          },
+          plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 11 } } } }
+        }
+      });
+
+      // 3. Detailed Stress Cards
+      document.getElementById('stress-details-grid').innerHTML = `
+        <div class="glass rounded-xl p-4 space-y-2">
+          <div class="text-xs font-bold text-sky-400 uppercase">🔥 1. CPU Criptografia & Matemática</div>
+          <div class="text-xl font-black text-white mono">${(cpu.multi_core_ops_per_sec || 0).toLocaleString('pt-BR')} <span class="text-xs font-normal text-slate-400">ops/s</span></div>
+          <div class="text-xs text-slate-300 space-y-1 pt-1 border-t border-slate-800">
+            <div>Single-Core: <strong class="mono">${(cpu.single_core_ops_per_sec || 0).toLocaleString('pt-BR')} ops/s</strong></div>
+            <div>Threads Paralelas: <strong class="mono">${cpu.workers_spawned || 1} workers (${cpu.multicore_scaling_ratio || 1}x)</strong></div>
+            <div>Matrizes 90x90: <strong class="mono">${cpu.floating_point_mflops || 0} MFLOPS</strong></div>
+            <div>Crivo 300k Primos: <strong class="mono">${cpu.prime_sieve_ms || 0} ms</strong></div>
+          </div>
+        </div>
+
+        <div class="glass rounded-xl p-4 space-y-2">
+          <div class="text-xs font-bold text-purple-400 uppercase">🧠 2. Stress de Memória RAM</div>
+          <div class="text-xl font-black text-white mono">${mem.memory_throughput_mb_s || 0} <span class="text-xs font-normal text-slate-400">MB/s</span></div>
+          <div class="text-xs text-slate-300 space-y-1 pt-1 border-t border-slate-800">
+            <div>Volume Processado: <strong class="mono">${mem.total_mb_processed || 0} MB</strong></div>
+            <div>Bloco por Iteração: <strong class="mono">${mem.block_size_mb || 0} MB (${mem.iterations || 0}x)</strong></div>
+            <div>Pico RSS Medido: <strong class="mono">${perf.peak_memory_mb_during_stress || mem.peak_memory_rss_mb || 0} MB</strong></div>
+            <div>Acesso Randômico: <strong class="mono">${(mem.random_access_ops_per_sec || 0).toLocaleString('pt-BR')} ops/s</strong></div>
+          </div>
+        </div>
+
+        <div class="glass rounded-xl p-4 space-y-2">
+          <div class="text-xs font-bold text-amber-400 uppercase">💾 3. Stress de Disco & IOPS 4K</div>
+          <div class="text-xl font-black text-white mono">${(disk.random_4k_iops || 0).toLocaleString('pt-BR')} <span class="text-xs font-normal text-slate-400">IOPS</span></div>
+          <div class="text-xs text-slate-300 space-y-1 pt-1 border-t border-slate-800">
+            <div>Escrita Sequencial (fsync): <strong class="mono">${disk.write_speed_mb_s || 0} MB/s</strong></div>
+            <div>Leitura Sequencial: <strong class="mono">${disk.read_speed_mb_s || 0} MB/s</strong></div>
+            <div>Arquivo de Teste: <strong class="mono">${disk.test_file_size_mb || 0} MB</strong></div>
+            <div>Tempo IOPS 4KB: <strong class="mono">${disk.iops_elapsed_ms || 0} ms</strong></div>
+          </div>
+        </div>
+
+        <div class="glass rounded-xl p-4 space-y-2">
+          <div class="text-xs font-bold text-emerald-400 uppercase">🌐 4. Concorrência TCP/HTTP</div>
+          <div class="text-xl font-black text-white mono">${(net.requests_per_sec || 0).toLocaleString('pt-BR')} <span class="text-xs font-normal text-slate-400">req/s</span></div>
+          <div class="text-xs text-slate-300 space-y-1 pt-1 border-t border-slate-800">
+            <div>Conexões Simultâneas: <strong class="mono">${net.concurrent_connections || 0}</strong></div>
+            <div>Latência Mediana (P50): <strong class="mono">${net.p50_latency_ms || 0} ms</strong></div>
+            <div>Latência P95: <strong class="mono">${net.p95_latency_ms || 0} ms</strong></div>
+            <div>Latência P99: <strong class="mono">${net.p99_latency_ms || 0} ms</strong></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPerformanceTable() {
+      const tbody = document.getElementById('table-perf-comparison');
+      const platforms = reportData.comparison_platforms || [];
+      tbody.innerHTML = platforms.map((p, idx) => {
+        const b = p.benchmark || {};
+        const isCurrent = idx === 0;
+        const badge = isCurrent
+          ? '<span class="ml-2 px-2 py-0.5 text-[10px] rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold">AO VIVO</span>'
+          : (p.is_imported ? '<span class="ml-2 px-2 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-300">IMPORTADO</span>' : '<span class="ml-2 px-2 py-0.5 text-[10px] rounded-full bg-slate-800 text-slate-400">REF</span>');
+        return `
+          <tr class="${isCurrent ? 'bg-sky-950/30 font-semibold' : 'hover:bg-slate-900/40'}">
+            <td class="py-3 px-3 text-white">${p.platform_name} ${badge}</td>
+            <td class="py-3 px-3"><span class="px-2.5 py-1 rounded-md font-bold ${p.overall_score >= 85 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-200'}">${p.overall_score}/100</span></td>
+            <td class="py-3 px-3 mono text-slate-200">${(b.cpu_ops_per_sec || 0).toLocaleString('pt-BR')}</td>
+            <td class="py-3 px-3 mono text-emerald-300">${(b.multi_core_ops_per_sec || 0).toLocaleString('pt-BR')}</td>
+            <td class="py-3 px-3 mono text-purple-300">${b.floating_point_mflops || '-'}</td>
+            <td class="py-3 px-3 mono text-slate-200">${b.memory_throughput_mb_s || '-'} MB/s</td>
+            <td class="py-3 px-3 mono text-slate-200">${b.disk_write_mb_s || '-'} / ${b.disk_read_mb_s || '-'}</td>
+            <td class="py-3 px-3 mono text-amber-300">${(b.random_4k_iops || 0).toLocaleString('pt-BR')}</td>
+            <td class="py-3 px-3 mono text-slate-300">~${p.idle_ram_mb || '-'} MB</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderComparisonMatrix() {
+      const catFilter = document.getElementById('filter-matrix-category').value;
+      const platforms = reportData.comparison_platforms || [];
+      const catalog = (reportData.feature_catalog || []).filter(f => catFilter === 'ALL' || f.category === catFilter);
+
+      document.getElementById('matrix-thead').innerHTML = `
+        <tr class="border-b border-slate-800 text-slate-400 text-xs uppercase">
+          <th class="py-3 px-3">Funcionalidade / Critério Técnico</th>
+          <th class="py-3 px-3">Categoria</th>
+          ${platforms.map((p, i) => `<th class="py-3 px-3 text-center ${i === 0 ? 'text-sky-400 font-bold' : ''}">${p.platform_name}</th>`).join('')}
+        </tr>
+      `;
+
+      document.getElementById('matrix-tbody').innerHTML = catalog.map(feat => `
+        <tr class="hover:bg-slate-900/40">
+          <td class="py-2.5 px-3 font-medium text-slate-200">${feat.name}</td>
+          <td class="py-2.5 px-3"><span class="px-2 py-0.5 text-[11px] rounded bg-slate-800 text-slate-300">${feat.category}</span></td>
+          ${platforms.map((p, i) => {
+            const supported = p.features && p.features[feat.id];
+            return `<td class="py-2.5 px-3 text-center ${i === 0 ? 'bg-sky-950/15' : ''}">
+              ${supported
+                ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">✔ Sim</span>'
+                : '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-800/80 text-slate-500">✖ Não</span>'}
+            </td>`;
+          }).join('')}
+        </tr>
+      `).join('');
+    }
+
+    function renderE2ETests() {
+      const container = document.getElementById('e2e-tests-container');
+      const e2e = reportData.deploydock_e2e || {};
+      const allTests = e2e.tests || [];
+      const search = (document.getElementById('search-e2e').value || '').toLowerCase();
+      const cat = document.getElementById('filter-e2e-cat').value;
+      const st = document.getElementById('filter-e2e-status').value;
+
+      document.getElementById('e2e-api-status').textContent = e2e.api_reachable
+        ? `Conectado à API DeployDock em ${e2e.api_url} • ${e2e.passed_tests} de ${e2e.total_tests} testes aprovados (${e2e.duration_ms} ms)`
+        : (e2e.message || 'API DeployDock não detectada neste host.');
+
+      // Render E2E Category Latency Chart
+      const catGroups = {};
+      allTests.forEach(t => {
+        if (!catGroups[t.category]) catGroups[t.category] = [];
+        catGroups[t.category].push(t.latency_ms);
+      });
+      const catLabels = Object.keys(catGroups);
+      const catAvgLat = catLabels.map(c => {
+        const arr = catGroups[c];
+        return Math.round((arr.reduce((a, b) => a + b, 0) / Math.max(arr.length, 1)) * 10) / 10;
+      });
+
+      const ctxLat = document.getElementById('chart-e2e-latency').getContext('2d');
+      if (e2eLatencyChartInstance) e2eLatencyChartInstance.destroy();
+      e2eLatencyChartInstance = new Chart(ctxLat, {
+        type: 'bar',
+        data: {
+          labels: catLabels,
+          datasets: [{
+            label: 'Latência Média por Categoria (ms)',
+            data: catAvgLat,
+            backgroundColor: '#38bdf8',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+            y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { display: false } }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+
+      const tests = allTests.filter(t => {
+        if (cat !== 'ALL' && t.category !== cat) return false;
+        if (st !== 'ALL' && t.status !== st) return false;
+        if (search && !(t.feature.toLowerCase().includes(search) || t.evidence.toLowerCase().includes(search) || t.endpoint.toLowerCase().includes(search))) return false;
+        return true;
+      });
+
+      if (!tests.length) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-400 text-sm">Nenhum teste encontrado para o filtro selecionado.</div>`;
+        return;
+      }
+
+      container.innerHTML = tests.map((t, idx) => `
+        <div class="p-3.5 rounded-xl border ${t.passed ? 'border-slate-800 bg-slate-900/50 hover:border-slate-700' : 'border-rose-500/40 bg-rose-950/20'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition">
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs mono text-slate-500">#${idx + 1}</span>
+              <span class="px-2 py-0.5 text-[11px] font-bold rounded ${t.passed ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}">
+                ${t.passed ? '✔ PASSOU' : '✖ FALHOU'}
+              </span>
+              <span class="px-2 py-0.5 text-[11px] rounded bg-slate-800 text-sky-300 font-medium">${t.category}</span>
+              <h4 class="text-sm font-semibold text-white">${t.feature}</h4>
+            </div>
+            <p class="text-xs text-slate-300 mono break-all">${t.evidence}</p>
+          </div>
+          <div class="text-right shrink-0 space-y-1">
+            <div class="text-xs mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">${t.endpoint}</div>
+            <div class="text-[11px] text-slate-400">Latência: <strong class="text-slate-200 mono">${t.latency_ms} ms</strong></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderContainerProbe() {
+      const sec = reportData.security || {};
+      const cg = reportData.cgroups || {};
+      const net = reportData.network || {};
+      const orch = reportData.orchestrator || {};
+      const env = reportData.environment_storage || {};
+
+      document.getElementById('security-checks-list').innerHTML = (sec.checks || []).map(c => `
+        <div class="p-3 rounded-lg border ${c.passed ? 'border-slate-800 bg-slate-900/50' : 'border-amber-500/30 bg-amber-950/15'} flex items-start justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold ${c.passed ? 'text-emerald-400' : 'text-amber-400'}">${c.passed ? '✔ Seguro' : '⚠ Atenção'}</span>
+              <span class="text-xs font-semibold text-white">${c.title}</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">${c.description}</p>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[11px] mono text-sky-300 shrink-0">${c.value}</span>
+        </div>
+      `).join('');
+
+      document.getElementById('cgroups-details').innerHTML = `
+        <div class="p-3 rounded-lg bg-slate-900/70 border border-slate-800">
+          <div class="text-slate-400">Orquestrador Detectado</div>
+          <div class="text-sm font-bold text-white mt-0.5">${orch.platform_name || '-'}</div>
+          <div class="text-[11px] text-sky-400">Hostname: ${orch.hostname || '-'}</div>
+        </div>
+        <div class="p-3 rounded-lg bg-slate-900/70 border border-slate-800">
+          <div class="text-slate-400">Cgroup Version & PIDs</div>
+          <div class="text-sm font-bold text-white mt-0.5">Cgroup ${cg.cgroup_version} • Max PIDs: ${cg.pids_limit || 'Ilimitado'}</div>
+          <div class="text-[11px] text-slate-400">PIDs ativos: ${cg.pids_current || 1}</div>
+        </div>
+        <div class="p-3 rounded-lg bg-slate-900/70 border border-slate-800">
+          <div class="text-slate-400">Quota de Memória RAM</div>
+          <div class="text-sm font-bold text-white mt-0.5">${cg.memory_limit_mb ? cg.memory_limit_mb + ' MB (Quota Ativa)' : 'Sem Limite (Host: ' + cg.host_memory_total_mb + ' MB)'}</div>
+          <div class="text-[11px] text-slate-400">Uso atual: ${cg.memory_current_mb} MB</div>
+        </div>
+        <div class="p-3 rounded-lg bg-slate-900/70 border border-slate-800">
+          <div class="text-slate-400">Quota de CPU (vCPU)</div>
+          <div class="text-sm font-bold text-white mt-0.5">${cg.cpu_limit_cores ? cg.cpu_limit_cores + ' vCPUs (Quota Ativa)' : 'Sem Limite (' + cg.host_cpu_cores + ' cores no host)'}</div>
+          <div class="text-[11px] text-slate-400">Arquitetura: ${env.architecture || '-'}</div>
+        </div>
+      `;
+
+      document.getElementById('network-details').innerHTML = `
+        <div><strong>Proxy Reverso Detectado:</strong> ${orch.reverse_proxy_detected ? 'Sim (' + orch.forwarded_proto + '://' + orch.forwarded_host + ')' : 'Acesso Direto'}</div>
+        <div><strong>Docker Embedded DNS (127.0.0.11):</strong> ${net.docker_embedded_dns ? 'Ativo' : 'Não detectado'} (Latência DNS: ${net.dns_latency_ms} ms)</div>
+        <div><strong>Interfaces de Rede:</strong> ${(net.interfaces || []).map(i => `${i.interface} (${i.ipv4.join(', ')})`).join(' • ')}</div>
+      `;
+
+      const envSnap = env.environment_snapshot || {};
+      document.getElementById('env-vars-grid').innerHTML = Object.entries(envSnap).map(([k, v]) => `
+        <div class="p-2 rounded bg-slate-900/80 border border-slate-800/80 truncate" title="${k}=${v}">
+          <span class="text-sky-400 font-semibold">${k}</span>=<span class="text-slate-300">${v}</span>
+        </div>
+      `).join('');
+    }
+
+    function renderWorkspaceFiles() {
+      const env = (reportData && reportData.environment_storage) || {};
+      const files = env.workspace_files || [];
+      document.getElementById('workspace-files-list').innerHTML = files.map(f => `
+        <div class="flex items-center justify-between p-2 rounded bg-slate-900 border border-slate-800">
+          <span class="mono text-sky-300">${f.name}</span>
+          <span class="text-slate-400">${f.size_bytes} bytes</span>
+        </div>
+      `).join('');
+    }
+
+    async function setHealthState(healthy, statusCode) {
+      const delay = parseInt(document.getElementById('input-health-delay').value || '0', 10);
+      try {
+        const res = await fetch('/api/chaos/health', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ healthy, status_code: statusCode, delay_ms: delay })
+        });
+        const data = await res.json();
+        const badge = document.getElementById('badge-health-state');
+        if (healthy) {
+          badge.textContent = '200 OK';
+          badge.className = 'px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-300 font-semibold';
+        } else {
+          badge.textContent = `HTTP ${statusCode} FALHA`;
+          badge.className = 'px-2 py-0.5 text-xs rounded-full bg-rose-500/20 text-rose-300 font-semibold';
+        }
+        showBanner(data.message, healthy ? 'success' : 'error');
+      } catch (err) {
+        showBanner('Erro ao configurar Healthcheck: ' + err.message, 'error');
+      }
+    }
+
+    async function emitLogs(level, count) {
+      const customMsg = document.getElementById('input-log-msg').value;
+      try {
+        const res = await fetch('/api/chaos/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level, count, custom_message: customMsg })
+        });
+        const data = await res.json();
+        document.getElementById('log-output-preview').innerHTML = (data.sample_lines || []).join('<br/>');
+        showBanner(`📜 ${data.emitted_count} linhas de log [${level}] emitidas no stdout/stderr do contêiner!`, 'success');
+      } catch (err) {
+        showBanner('Erro ao emitir logs: ' + err.message, 'error');
+      }
+    }
+
+    async function createWorkspaceFile() {
+      const filename = document.getElementById('input-ws-filename').value;
+      const content = document.getElementById('input-ws-content').value;
+      try {
+        const res = await fetch('/api/workspace/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, content })
+        });
+        const data = await res.json();
+        if (reportData) reportData.environment_storage = data;
+        renderWorkspaceFiles();
+        showBanner(`💾 Arquivo '${filename}' salvo em /app/workspace!`, 'success');
+      } catch (err) {
+        showBanner('Erro ao gravar arquivo: ' + err.message, 'error');
+      }
+    }
+
+    function openPrintableDocument() {
+      if (window.location.protocol !== 'file:') {
+        window.open('/api/report/document-html', '_blank');
+      } else {
+        switchTab('tab-document');
+        window.print();
+      }
+    }
+
+    function downloadMarkdownDocument() {
+      if (!reportData || !reportData.markdown_document) {
+        if (window.location.protocol !== 'file:') {
+          window.location.href = '/api/report/document-md';
+        }
+        return;
+      }
+      const blob = new Blob([reportData.markdown_document], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RELATORIO_TECNICO_AUDITORIA_DEPLOYDOCK.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showBanner('📝 Documento Técnico em Markdown (.md) baixado com sucesso!', 'success');
+    }
+
+    function copyMarkdownDocument() {
+      if (!reportData || !reportData.markdown_document) return;
+      navigator.clipboard.writeText(reportData.markdown_document);
+      showBanner('📋 Documento Markdown copiado para a área de transferência!', 'success');
+    }
+
+    function exportSnapshotJSON() {
+      if (!reportData) return;
+      const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const slug = (reportData.current_platform_snapshot.platform_name || 'platform').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      a.href = url;
+      a.download = `benchmark_snapshot_${slug}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function handleImportJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          const snap = parsed.current_platform_snapshot || parsed;
+          if (!snap.platform_name || !snap.benchmark) {
+            throw new Error('O JSON não contém um snapshot de benchmark válido.');
+          }
+          snap.is_imported = true;
+          if (window.location.protocol !== 'file:') {
+            try {
+              await fetch('/api/comparison/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsed)
+              });
+            } catch (_) {}
+          }
+          reportData.comparison_platforms.splice(1, 0, snap);
+          renderAll();
+          showBanner(`📊 Snapshot da plataforma "${snap.platform_name}" importado e adicionado aos gráficos e tabelas comparativas!`, 'success');
+        } catch (err) {
+          showBanner('Falha ao importar JSON: ' + err.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function downloadStandaloneHTML() {
+      if (!reportData) return;
+      const cloneDoc = document.documentElement.cloneNode(true);
+      const scriptEl = cloneDoc.querySelector('#embedded-report-script');
+      if (scriptEl) {
+        scriptEl.textContent = `window.__EMBEDDED_REPORT__ = ${JSON.stringify(reportData, null, 2)};`;
+      }
+      const htmlContent = '<!DOCTYPE html>\n' + cloneDoc.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `relatorio_interativo_deploydock_${new Date().toISOString().slice(0,10)}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showBanner('📊 Relatório HTML Interativo Standalone gerado e baixado com sucesso!', 'success');
+    }
+
+    window.addEventListener('DOMContentLoaded', loadInitialReport);
+  </script>
+</body>
+</html>

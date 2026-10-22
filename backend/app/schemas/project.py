@@ -35,10 +35,17 @@ class ProjectBase(BaseModel):
     subdomain: Optional[str] = None
     custom_domain: Optional[str] = None
     container_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    preview_deployments_enabled: Optional[bool] = True
+    memory_limit_mb: Optional[int] = Field(default=None, ge=32, le=65536)
+    cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
+    auto_heal: Optional[bool] = True
+
 
 class ProjectCreate(RoutingFieldsMixin, ProjectBase):
     template: Optional[str] = None  # 'fastapi' | 'express' | 'static' | 'custom'
     dockerfile_content: Optional[str] = None
+    git_token: Optional[str] = None
+
 
 class ProjectUpdate(RoutingFieldsMixin, BaseModel):
     name: Optional[str] = None
@@ -53,15 +60,23 @@ class ProjectUpdate(RoutingFieldsMixin, BaseModel):
     subdomain: Optional[str] = None
     custom_domain: Optional[str] = None
     container_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    git_token: Optional[str] = None
+    preview_deployments_enabled: Optional[bool] = None
+    memory_limit_mb: Optional[int] = Field(default=None, ge=32, le=65536)
+    cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
+    auto_heal: Optional[bool] = None
+
 
 class ProjectRead(ProjectBase):
     id: uuid.UUID
     public_host: str
     public_url: str
+    has_git_token: bool = False
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
+
 
 class ProjectList(BaseModel):
     id: uuid.UUID
@@ -77,7 +92,12 @@ class ProjectList(BaseModel):
     public_url: str
     last_deploy_status: Optional[str] = None
     container_id: Optional[str] = None
-    
+    has_git_token: bool = False
+    preview_deployments_enabled: Optional[bool] = True
+    memory_limit_mb: Optional[int] = None
+    cpu_limit_cores: Optional[float] = None
+    auto_heal: Optional[bool] = True
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -87,4 +107,3 @@ class RoutingConfig(BaseModel):
     tls_enabled: bool
     scheme: str
     port_suffix: str
-

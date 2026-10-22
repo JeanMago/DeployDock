@@ -1,31 +1,35 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional as _Optional
+from pydantic import BaseModel as _BaseModel
 import os
+import shutil
 import secrets
-import time
 import git
-import httpx
 import logging
 import uuid
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_user, require_role
 from app.core.config import settings
-from app.core.routing import slugify
+from app.core.routing import slugify, public_url as build_public_url
 from app.core.security import encrypt_value, decrypt_value
 from app.core.waf import security_manager, validate_safe_git_url
 from app.db.session import async_session_factory
 from app.models.project import Project
+from app.models.user import User
+from app.models.environment import EnvironmentVariable
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectRead, ProjectList, RoutingConfig
 from app.api.v1.endpoints.webhooks import _trigger_deploy
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
+from app.services.uptime_service import uptime_monitor
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
+
 
 @router.get("/routing-config", response_model=RoutingConfig)
 async def get_routing_config():
@@ -43,6 +47,29 @@ async def get_routing_config():
         scheme=scheme,
         port_suffix=port_suffix,
     )
+
+
+@router.get("/uptime/overview")
+async def get_uptime_overview():
+    """Retorna métricas de Uptime, histórico de latência e contadores de Auto-Healing de todos os projetos."""
+    records = uptime_monitor.get_all_records()
+    if not records:
+        records = await uptime_monitor.check_all_projects()
+    return {
+        "total_auto_heals": uptime_monitor.total_auto_heals,
+        "projects": records,
+    }
+
+
+@router.post("/uptime/check-now")
+async def trigger_uptime_check_now():
+    """Executa verificação imediata de Uptime/Latência em todos os projetos."""
+    records = await uptime_monitor.check_all_projects()
+    return {
+        "total_auto_heals": uptime_monitor.total_auto_heals,
+        "projects": records,
+    }
+
 
 TEMPLATES = {
     "fastapi": {
@@ -186,6 +213,7 @@ CMD ["nginx", "-g", "daemon off;"]
     },
 }
 
+
 @router.get("", response_model=List[ProjectList])
 async def list_projects(db: AsyncSession = Depends(get_db)):
     from app.models.deployment import Deployment
@@ -193,14 +221,12 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).order_by(Project.created_at.desc()))
     projects = result.scalars().all()
 
-    # Mapear último deploy de cada projeto
     dep_res = await db.execute(select(Deployment).order_by(Deployment.started_at.desc()))
     latest_by_project: dict[uuid.UUID, str] = {}
     for d in dep_res.scalars().all():
         if d.project_id not in latest_by_project:
             latest_by_project[d.project_id] = d.status
 
-    # Mapear contêineres ativos do Docker por nome (deploydock_<name>)
     container_map: dict[str, tuple[str, str]] = {}
     try:
         docker_svc = DockerService()
@@ -216,23 +242,31 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
         status = latest_by_project.get(p.id)
         if c_info and c_info[1] == "running":
             status = status or "running"
-        out.append({
-            "id": p.id,
-            "name": p.name,
-            "repo_url": p.repo_url,
-            "branch": p.branch,
-            "auto_deploy": p.auto_deploy,
-            "webhook_secret": p.webhook_secret,
-            "subdomain": p.subdomain,
-            "custom_domain": p.custom_domain,
-            "container_port": p.container_port,
-            "public_host": p.public_host,
-            "public_url": p.public_url,
-            "last_deploy_status": status or ("running" if c_info else "pending"),
-            "container_id": c_info[0] if c_info else None,
-        })
+        out.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "repo_url": p.repo_url,
+                "branch": p.branch,
+                "auto_deploy": p.auto_deploy,
+                "webhook_secret": p.webhook_secret,
+                "subdomain": p.subdomain,
+                "custom_domain": p.custom_domain,
+                "container_port": p.container_port,
+                "public_host": p.public_host,
+                "public_url": p.public_url,
+                "last_deploy_status": status or ("running" if c_info else "pending"),
+                "container_id": c_info[0] if c_info else None,
+                "has_git_token": p.has_git_token,
+                "preview_deployments_enabled": (
+                    True if p.preview_deployments_enabled is None else p.preview_deployments_enabled
+                ),
+                "memory_limit_mb": p.memory_limit_mb,
+                "cpu_limit_cores": p.cpu_limit_cores,
+                "auto_heal": True if p.auto_heal is None else p.auto_heal,
+            }
+        )
     return out
-
 
 
 async def _ensure_routing_available(
@@ -253,7 +287,9 @@ async def _ensure_routing_available(
         if exclude_id:
             query = query.where(Project.id != exclude_id)
         if (await db.execute(query)).first():
-            raise HTTPException(status_code=409, detail=f"O {label} '{value}' já está em uso por outro projeto.")
+            raise HTTPException(
+                status_code=409, detail=f"O {label} '{value}' já está em uso por outro projeto."
+            )
 
 
 async def _unique_subdomain(db: AsyncSession, base: str) -> str:
@@ -266,10 +302,12 @@ async def _unique_subdomain(db: AsyncSession, base: str) -> str:
     return candidate
 
 
-@router.post("", response_model=ProjectRead)
+@router.post("", response_model=ProjectRead, dependencies=[Depends(require_role("admin", "developer"))])
 async def create_project(
     project_in: ProjectCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project_id = uuid.uuid4()
@@ -277,11 +315,9 @@ async def create_project(
     repo_url = (project_in.repo_url or "").strip()
     branch = project_in.branch or "main"
 
-    # URL pública: subdomínio informado pelo usuário ou gerado a partir do nome
     subdomain = project_in.subdomain or await _unique_subdomain(db, slugify(project_in.name))
     await _ensure_routing_available(db, subdomain, project_in.custom_domain)
 
-    # Se não forneceu URL do Git ou escolheu modelo pronto, criamos repositório local gerenciado automaticamente
     if not repo_url or repo_url.startswith("local:") or project_in.template:
         repo_dir = os.path.abspath(os.path.join(settings.REPOS_BASE_PATH, str(project_id)))
         os.makedirs(repo_dir, exist_ok=True)
@@ -297,7 +333,6 @@ async def create_project(
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-        # Inicializa Git localmente
         try:
             repo = git.Repo.init(repo_dir)
             repo.git.checkout("-b", branch)
@@ -309,6 +344,10 @@ async def create_project(
         repo_url = repo_dir
     else:
         repo_url = validate_safe_git_url(repo_url)
+
+    encrypted_git_token = None
+    if project_in.git_token and project_in.git_token.strip():
+        encrypted_git_token = f"enc:{encrypt_value(project_in.git_token.strip())}"
 
     db_obj = Project(
         id=project_id,
@@ -324,11 +363,30 @@ async def create_project(
         subdomain=subdomain,
         custom_domain=project_in.custom_domain,
         container_port=project_in.container_port,
+        git_token=encrypted_git_token,
+        preview_deployments_enabled=(
+            True
+            if project_in.preview_deployments_enabled is None
+            else project_in.preview_deployments_enabled
+        ),
+        memory_limit_mb=project_in.memory_limit_mb,
+        cpu_limit_cores=project_in.cpu_limit_cores,
+        auto_heal=True if project_in.auto_heal is None else project_in.auto_heal,
     )
     db.add(db_obj)
     await db.commit()
     await db.refresh(db_obj)
+
+    security_manager.log_event(
+        event_type="deploy",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path="/api/v1/projects",
+        detail=f"Projeto '{db_obj.name}' criado ({db_obj.public_url})",
+        user=current_user.username,
+    )
     return db_obj
+
 
 @router.get("/{project_id}", response_model=ProjectRead)
 async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -339,11 +397,17 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     return project
 
 
-ROUTING_FIELDS = ("subdomain", "custom_domain", "container_port")
+ROUTING_FIELDS = (
+    "subdomain",
+    "custom_domain",
+    "container_port",
+    "memory_limit_mb",
+    "cpu_limit_cores",
+)
 
 
 async def _reapply_routing(project_id: str) -> None:
-    """Background task: recria o contêiner com a nova URL pública (sem rebuild)."""
+    """Background task: recria o contêiner com a nova URL pública e limites (sem rebuild)."""
     async with async_session_factory() as session:
         project = (
             await session.execute(select(Project).where(Project.id == uuid.UUID(project_id)))
@@ -356,23 +420,34 @@ async def _reapply_routing(project_id: str) -> None:
         try:
             applied = await orchestrator.apply_routing(project)
             if not applied:
-                logger.info(f"[Routing] {project.name} sem contêiner ativo; URL será usada no próximo deploy.")
+                logger.info(
+                    f"[Routing] {project.name} sem contêiner ativo; URL será usada no próximo deploy."
+                )
         except Exception as e:
             logger.error(f"[Routing] Falha ao reaplicar URL de {project.name}: {e}")
 
 
-@router.put("/{project_id}", response_model=ProjectRead)
-@router.patch("/{project_id}", response_model=ProjectRead)
+@router.put(
+    "/{project_id}",
+    response_model=ProjectRead,
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
+@router.patch(
+    "/{project_id}",
+    response_model=ProjectRead,
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
 async def update_project(
     project_id: uuid.UUID,
     project_in: ProjectUpdate,
+    request: Request,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
     update_data = project_in.model_dump(exclude_unset=True)
 
-    # Subdomínio vazio => volta ao padrão gerado a partir do nome
     if "subdomain" in update_data and not update_data["subdomain"]:
         base = slugify(update_data.get("name") or project.name)
         update_data["subdomain"] = (
@@ -383,6 +458,13 @@ async def update_project(
         db, update_data.get("subdomain"), update_data.get("custom_domain"), exclude_id=project.id
     )
 
+    if "git_token" in update_data:
+        raw_tok = update_data.pop("git_token")
+        if raw_tok is not None:
+            project.git_token = (
+                f"enc:{encrypt_value(raw_tok.strip())}" if raw_tok.strip() else None
+            )
+
     routing_changed = any(
         k in update_data and update_data[k] != getattr(project, k) for k in ROUTING_FIELDS
     )
@@ -391,23 +473,49 @@ async def update_project(
     await db.commit()
     await db.refresh(project)
 
+    security_manager.log_event(
+        event_type="deploy",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}",
+        detail=f"Configurações do projeto '{project.name}' atualizadas",
+        user=current_user.username,
+    )
+
     if routing_changed:
         background_tasks.add_task(_reapply_routing, str(project.id))
     return project
 
-@router.delete("/{project_id}")
-async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+
+@router.delete("/{project_id}", dependencies=[Depends(require_role("admin", "developer"))])
+async def delete_project(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     project = await get_project(project_id, db)
+    p_name = project.name
     await db.delete(project)
     await db.commit()
+    security_manager.log_event(
+        event_type="deploy",
+        severity="medium",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}",
+        detail=f"Projeto '{p_name}' excluído",
+        user=current_user.username,
+    )
     return {"message": "Projeto excluído com sucesso"}
 
-@router.post("/{project_id}/deploy")
+
+@router.post("/{project_id}/deploy", dependencies=[Depends(require_role("admin", "developer"))])
 async def deploy_project(
     project_id: uuid.UUID,
     request: Request,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
     security_manager.log_event(
@@ -416,6 +524,7 @@ async def deploy_project(
         ip=security_manager.get_client_ip(request),
         path=f"/api/v1/projects/{project_id}/deploy",
         detail=f"Deploy iniciado para o projeto '{project.name}' ({project.branch})",
+        user=current_user.username,
         blocked=False,
     )
     background_tasks.add_task(_trigger_deploy, str(project.id), "manual", project.branch)
@@ -427,42 +536,135 @@ async def check_project_health(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Testa conectividade HTTP ao vivo na rota pública do projeto via Traefik."""
+    """Testa conectividade HTTP ao vivo e retorna métricas de Uptime, histórico de latência e Auto-Heal."""
     project = await get_project(project_id, db)
-    host_header = project.public_host
-    proxy_port = settings.PROXY_HTTP_PORT or 80
-    target_url = f"http://127.0.0.1:{proxy_port}/"
+    return await uptime_monitor.check_single_project(project)
 
-    t0 = time.perf_counter()
+
+# ----------------------------------------------------------------
+# Preview Deployments por Branch / Pull Request (Feature 5)
+# ----------------------------------------------------------------
+
+class PreviewCreatePayload(_BaseModel):
+    branch: str
+
+
+@router.get("/{project_id}/previews")
+async def list_project_previews(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista todos os ambientes de Preview ativos para este projeto."""
+    project = await get_project(project_id, db)
+    docker = DockerService()
+    containers = await docker.list_containers(all=True)
+    prefix = f"deploydock_preview_{slugify(project.name)}_"
+
+    previews = []
+    for c in containers:
+        labels = c.get("labels") or {}
+        if c["name"].lower().startswith(prefix) or (
+            labels.get("deploydock.preview") == "true"
+            and labels.get("deploydock.project_name") == project.name
+        ):
+            branch_slug = labels.get("deploydock.preview_slug") or c["name"][len(prefix):]
+            branch_name = labels.get("deploydock.preview_branch") or branch_slug
+            host = labels.get("deploydock.host") or f"{branch_slug}-{project.subdomain}.{settings.APPS_BASE_DOMAIN}"
+            previews.append(
+                {
+                    "container_id": c["id"],
+                    "container_name": c["name"],
+                    "branch": branch_name,
+                    "branch_slug": branch_slug,
+                    "status": c.get("state") or c.get("status") or "running",
+                    "public_host": host,
+                    "public_url": c.get("public_url") or build_public_url(host),
+                    "created": c.get("created"),
+                }
+            )
+    return previews
+
+
+@router.post(
+    "/{project_id}/previews",
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
+async def create_project_preview(
+    project_id: uuid.UUID,
+    payload: PreviewCreatePayload,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cria ou atualiza um ambiente isolado de Preview para uma branch ou Pull Request."""
+    project = await get_project(project_id, db)
+    branch_name = (payload.branch or "").strip()
+    if not branch_name:
+        raise HTTPException(status_code=400, detail="Informe o nome da branch ou PR (ex: feat-login, pr-12).")
+
+    orchestrator = DeployOrchestrator(
+        docker_service=DockerService(),
+        git_service=GitService(),
+        db_session=db,
+    )
     try:
-        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
-            resp = await client.get(target_url, headers={"Host": host_header})
-            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-            return {
-                "project_id": str(project.id),
-                "name": project.name,
-                "public_url": project.public_url,
-                "reachable": 200 <= resp.status_code < 400,
-                "status_code": resp.status_code,
-                "latency_ms": latency_ms,
-            }
-    except Exception as exc:
-        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-        return {
-            "project_id": str(project.id),
-            "name": project.name,
-            "public_url": project.public_url,
-            "reachable": False,
-            "status_code": 0,
-            "latency_ms": latency_ms,
-            "error": str(exc),
-        }
+        res = await orchestrator.deploy_preview(project, branch_name)
+        security_manager.log_event(
+            event_type="deploy",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/projects/{project_id}/previews",
+            detail=f"Preview Deployment criado para '{project.name}' branch '{branch_name}' → {res.get('public_url')}",
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Falha ao criar Preview Deployment: {e}")
 
 
-from pydantic import BaseModel as _BaseModel
-from typing import Optional as _Optional
-from app.models.environment import EnvironmentVariable
+@router.delete(
+    "/{project_id}/previews/{branch_slug}",
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
+async def delete_project_preview(
+    project_id: uuid.UUID,
+    branch_slug: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Encerra e remove um ambiente de Preview."""
+    project = await get_project(project_id, db)
+    clean_slug = slugify(branch_slug)[:28]
+    container_name = f"deploydock_preview_{slugify(project.name)}_{clean_slug}"
+    docker = DockerService()
+    try:
+        await docker.stop_container(container_name, timeout=8)
+    except Exception:
+        pass
+    try:
+        await docker.remove_container(container_name, force=True)
+    except Exception:
+        pass
 
+    preview_repo_path = os.path.join(settings.REPOS_BASE_PATH, f"{project.id}_preview_{clean_slug}")
+    if os.path.exists(preview_repo_path):
+        shutil.rmtree(preview_repo_path, ignore_errors=True)
+
+    security_manager.log_event(
+        event_type="deploy",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}/previews/{branch_slug}",
+        detail=f"Ambiente de Preview '{branch_slug}' encerrado em '{project.name}'",
+        user=current_user.username,
+    )
+    return {"deleted": branch_slug}
+
+
+# ----------------------------------------------------------------
+# Variáveis de Ambiente (.env)
+# ----------------------------------------------------------------
 
 class EnvVarCreatePayload(_BaseModel):
     key: _Optional[str] = None
@@ -503,12 +705,13 @@ async def list_env(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.post("/{project_id}/env")
+@router.post("/{project_id}/env", dependencies=[Depends(require_role("admin", "developer"))])
 async def add_env(
     project_id: uuid.UUID,
     payload: EnvVarCreatePayload,
     request: Request,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
@@ -556,6 +759,7 @@ async def add_env(
         ip=security_manager.get_client_ip(request),
         path=f"/api/v1/projects/{project_id}/env",
         detail=f"{len(pairs)} variável(is) .env atualizada(s) em '{project.name}' (Fernet AES-128 ativo)",
+        user=current_user.username,
         blocked=False,
     )
     if payload.apply_now:
@@ -564,7 +768,7 @@ async def add_env(
     return await list_env(project_id, db)
 
 
-@router.delete("/{project_id}/env/{env_id}")
+@router.delete("/{project_id}/env/{env_id}", dependencies=[Depends(require_role("admin", "developer"))])
 async def delete_env(
     project_id: uuid.UUID,
     env_id: uuid.UUID,
@@ -588,7 +792,7 @@ async def delete_env(
     return {"message": "Deleted"}
 
 
-@router.post("/{project_id}/env/apply")
+@router.post("/{project_id}/env/apply", dependencies=[Depends(require_role("admin", "developer"))])
 async def apply_env_to_container(
     project_id: uuid.UUID,
     background_tasks: BackgroundTasks,
@@ -597,4 +801,3 @@ async def apply_env_to_container(
     project = await get_project(project_id, db)
     background_tasks.add_task(_reapply_routing, str(project.id))
     return {"message": f"Variáveis aplicadas ao contêiner de {project.name}."}
-

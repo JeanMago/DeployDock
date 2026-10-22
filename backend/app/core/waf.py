@@ -139,6 +139,25 @@ class SecurityManager:
             blocked=blocked,
         )
         self.audit_logs.appendleft(entry)
+
+        if blocked and event_type in ("waf_block", "manual_block", "auth_fail"):
+            try:
+                import asyncio
+                from app.services.notification_service import notification_manager
+
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    notification_manager.notify(
+                        event_type="waf_block",
+                        title=f"Escudo WAF Bloqueou Ameaça ({event_type})",
+                        message=f"IP: `{ip}` • Rota: `{path}` • Usuário: `{user or 'anonymous'}`\nDetalhe: {detail}",
+                        severity="critical" if severity == "critical" else "warning",
+                        metadata={"ip": ip, "path": path, "event_type": event_type},
+                    )
+                )
+            except Exception:
+                pass
+
         return entry
 
     def is_ip_blocked(self, ip: str) -> Optional[Dict[str, Any]]:

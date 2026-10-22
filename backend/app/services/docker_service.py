@@ -270,6 +270,17 @@ class DockerService:
             c = await asyncio.to_thread(self.client.containers.get, container_id)
         except NotFound:
             raise ValueError(f"Contêiner '{container_id}' não encontrado.")
+        host_cfg = c.attrs.get("HostConfig", {}) or {}
+        mem_bytes = host_cfg.get("Memory") or 0
+        nano_cpus = host_cfg.get("NanoCpus") or 0
+        cpu_quota = host_cfg.get("CpuQuota") or 0
+        cpu_period = host_cfg.get("CpuPeriod") or 100000
+        cpu_cores = None
+        if nano_cpus > 0:
+            cpu_cores = round(nano_cpus / 1e9, 2)
+        elif cpu_quota > 0 and cpu_period > 0:
+            cpu_cores = round(cpu_quota / cpu_period, 2)
+
         return {
             "id": c.short_id,
             "full_id": c.id,
@@ -283,7 +294,9 @@ class DockerService:
             "networks": c.attrs.get("NetworkSettings", {}).get("Networks", {}),
             "env": c.attrs.get("Config", {}).get("Env", []),
             "config": c.attrs.get("Config", {}),
-            "restart_policy": c.attrs.get("HostConfig", {}).get("RestartPolicy", {}),
+            "restart_policy": host_cfg.get("RestartPolicy", {}),
+            "memory_limit_mb": round(mem_bytes / (1024 * 1024)) if mem_bytes > 0 else None,
+            "cpu_limit_cores": cpu_cores,
         }
 
     # ----------------------------------------------------------------
@@ -1064,5 +1077,329 @@ class DockerService:
             "stderr": res.get("stderr") or "",
             "exit_code": res.get("exit_code", 0),
         }
+
+    async def write_container_file(
+        self, container_id: str, file_path: str, content: str, restart: bool = False
+    ) -> dict[str, Any]:
+        """Edita/salva ou cria um arquivo de texto dentro do contêiner usando put_archive (seguro e binário)."""
+        import io
+        import tarfile
+
+        clean_path = (file_path or "").strip()
+        if not clean_path.startswith("/"):
+            clean_path = "/" + clean_path
+        dir_path = os.path.dirname(clean_path) or "/"
+        filename = os.path.basename(clean_path)
+        if not filename:
+            raise ValueError("Caminho de arquivo inválido.")
+
+        def _put():
+            c = self.client.containers.get(container_id)
+            data_bytes = content.encode("utf-8")
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+                info = tarfile.TarInfo(name=filename)
+                info.size = len(data_bytes)
+                info.mtime = int(time.time())
+                info.mode = 0o644
+                tar.addfile(info, io.BytesIO(data_bytes))
+            tar_stream.seek(0)
+            c.put_archive(dir_path, tar_stream.getvalue())
+            if restart:
+                c.restart(timeout=10)
+            return {
+                "path": clean_path,
+                "size_bytes": len(data_bytes),
+                "restarted": restart,
+            }
+
+        try:
+            return await asyncio.to_thread(_put)
+        except NotFound:
+            raise ValueError(f"Contêiner '{container_id}' não encontrado.")
+        except Exception as e:
+            raise RuntimeError(f"Erro ao salvar arquivo no contêiner: {e}")
+
+    async def upload_container_file(
+        self, container_id: str, dir_path: str, filename: str, content_base64: str
+    ) -> dict[str, Any]:
+        """Faz upload de um arquivo arbitrário (base64) para um diretório dentro do contêiner."""
+        import base64
+        import io
+        import tarfile
+
+        safe_dir = (dir_path or "/").strip() or "/"
+        safe_name = os.path.basename((filename or "").strip())
+        if not safe_name:
+            raise ValueError("Nome de arquivo inválido.")
+
+        def _upload():
+            c = self.client.containers.get(container_id)
+            raw_bytes = base64.b64decode(content_base64)
+            tar_stream = io.BytesIO()
+            with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+                info = tarfile.TarInfo(name=safe_name)
+                info.size = len(raw_bytes)
+                info.mtime = int(time.time())
+                info.mode = 0o644
+                tar.addfile(info, io.BytesIO(raw_bytes))
+            tar_stream.seek(0)
+            c.put_archive(safe_dir, tar_stream.getvalue())
+            full_dest = f"/{safe_name}" if safe_dir == "/" else f"{safe_dir.rstrip('/')}/{safe_name}"
+            return {
+                "path": full_dest,
+                "filename": safe_name,
+                "size_bytes": len(raw_bytes),
+            }
+
+        try:
+            return await asyncio.to_thread(_upload)
+        except NotFound:
+            raise ValueError(f"Contêiner '{container_id}' não encontrado.")
+        except Exception as e:
+            raise RuntimeError(f"Erro ao enviar arquivo para o contêiner: {e}")
+
+    async def download_container_file(
+        self, container_id: str, file_path: str
+    ) -> tuple[bytes, str]:
+        """Extrai e retorna os bytes de um arquivo dentro do contêiner (ou .tar se for diretório)."""
+        import io
+        import tarfile
+
+        def _download():
+            c = self.client.containers.get(container_id)
+            bits, _stat = c.get_archive(file_path)
+            tar_bytes = b"".join(bits)
+            tar_stream = io.BytesIO(tar_bytes)
+            with tarfile.open(fileobj=tar_stream, mode="r:*") as tar:
+                members = tar.getmembers()
+                if len(members) == 1 and members[0].isfile():
+                    extracted = tar.extractfile(members[0])
+                    if extracted:
+                        return extracted.read(), os.path.basename(file_path)
+            return tar_bytes, f"{os.path.basename(file_path.rstrip('/')) or 'archive'}.tar"
+
+        try:
+            return await asyncio.to_thread(_download)
+        except NotFound:
+            raise ValueError(f"Arquivo ou contêiner não encontrado: {file_path}")
+        except Exception as e:
+            raise RuntimeError(f"Erro ao baixar arquivo do contêiner: {e}")
+
+    async def delete_container_file(
+        self, container_id: str, file_path: str
+    ) -> dict[str, Any]:
+        """Remove um arquivo ou pasta dentro do contêiner com trava contra raiz."""
+        clean_path = (file_path or "").strip()
+        if clean_path in ("", "/", "/bin", "/etc", "/usr", "/var", "/lib", "/proc", "/sys"):
+            raise ValueError("Exclusão deste diretório de sistema não é permitida.")
+        res = await self.exec_container_command(container_id, f'rm -rf -- "{clean_path}"')
+        return {"deleted": clean_path, "exit_code": res.get("exit_code", 0)}
+
+    # ----------------------------------------------------------------
+    # Limites de Recursos em Tempo Real (Quotas de CPU & RAM)
+    # ----------------------------------------------------------------
+
+    async def update_container_resources(
+        self,
+        container_id: str,
+        memory_limit_mb: int | None = None,
+        cpu_limit_cores: float | None = None,
+    ) -> dict[str, Any]:
+        """Atualiza dinamicamente os limites de RAM e CPU de um contêiner em execução via Docker Engine."""
+        def _update():
+            c = self.client.containers.get(container_id)
+            kwargs: dict[str, Any] = {}
+            if memory_limit_mb is not None and memory_limit_mb > 0:
+                mem_bytes = int(memory_limit_mb) * 1024 * 1024
+                kwargs["mem_limit"] = mem_bytes
+                kwargs["memswap_limit"] = mem_bytes * 2
+            if cpu_limit_cores is not None and cpu_limit_cores > 0:
+                kwargs["cpu_period"] = 100000
+                kwargs["cpu_quota"] = int(float(cpu_limit_cores) * 100000)
+
+            if kwargs:
+                c.update(**kwargs)
+            c.reload()
+            return {
+                "id": c.short_id,
+                "name": c.name,
+                "memory_limit_mb": memory_limit_mb,
+                "cpu_limit_cores": cpu_limit_cores,
+            }
+
+        try:
+            return await asyncio.to_thread(_update)
+        except NotFound:
+            raise ValueError(f"Contêiner '{container_id}' não encontrado.")
+        except APIError as e:
+            raise RuntimeError(f"Erro ao atualizar limites do contêiner: {e.explanation}")
+
+    # ----------------------------------------------------------------
+    # Backup & Restore de Volumes Docker e Dump de Bancos de Dados
+    # ----------------------------------------------------------------
+
+    def _pick_helper_image(self) -> str:
+        """Escolhe uma imagem local já disponível (evita pull desnecessário) ou faz pull do alpine:latest."""
+        images = self.client.images.list()
+        for img in images:
+            for tag in img.tags or []:
+                if any(k in tag for k in ("alpine", "nginx", "postgres", "python", "busybox")):
+                    return tag
+        if images and images[0].tags:
+            return images[0].tags[0]
+        self.client.images.pull("alpine:latest")
+        return "alpine:latest"
+
+    async def export_volume_backup(self, volume_name: str) -> tuple[bytes, str]:
+        """Exporta todo o conteúdo de um Volume Docker como arquivo compactado .tar.gz."""
+        import gzip
+
+        def _export():
+            vol = self.client.volumes.get(volume_name)
+            helper_img = self._pick_helper_image()
+            temp_c = self.client.containers.create(
+                helper_img,
+                command="true",
+                volumes={vol.name: {"bind": "/backup_src", "mode": "ro"}},
+            )
+            try:
+                bits, _stat = temp_c.get_archive("/backup_src")
+                raw_tar = b"".join(bits)
+                gz_bytes = gzip.compress(raw_tar, compresslevel=6)
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                return gz_bytes, f"volume_{vol.name}_{ts}.tar.gz"
+            finally:
+                try:
+                    temp_c.remove(force=True)
+                except Exception:
+                    pass
+
+        try:
+            return await asyncio.to_thread(_export)
+        except NotFound:
+            raise ValueError(f"Volume '{volume_name}' não encontrado.")
+        except Exception as e:
+            raise RuntimeError(f"Erro ao exportar backup do volume: {e}")
+
+    async def restore_volume_backup(
+        self, volume_name: str, archive_base64: str
+    ) -> dict[str, Any]:
+        """Restaura um arquivo .tar.gz ou .tar dentro de um Volume Docker (cria o volume se não existir)."""
+        import base64
+        import gzip
+        import io
+        import tarfile
+
+        def _restore():
+            try:
+                vol = self.client.volumes.get(volume_name)
+            except NotFound:
+                vol = self.client.volumes.create(name=volume_name)
+
+            raw_bytes = base64.b64decode(archive_base64)
+            # Descompactar se for .tar.gz
+            if raw_bytes[:2] == b"\x1f\x8b":
+                tar_bytes = gzip.decompress(raw_bytes)
+            else:
+                tar_bytes = raw_bytes
+
+            # Se o tar tiver prefixo "backup_src/", normalizar para extrair direto na raiz do volume
+            normalized_stream = io.BytesIO()
+            with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:*") as src_tar:
+                with tarfile.open(fileobj=normalized_stream, mode="w") as dst_tar:
+                    for member in src_tar.getmembers():
+                        clean_name = member.name
+                        if clean_name.startswith("backup_src/"):
+                            clean_name = clean_name[len("backup_src/"):]
+                        elif clean_name == "backup_src":
+                            continue
+                        if not clean_name:
+                            continue
+                        member.name = clean_name
+                        fobj = src_tar.extractfile(member) if member.isfile() else None
+                        dst_tar.addfile(member, fobj)
+
+            normalized_stream.seek(0)
+            final_tar = normalized_stream.getvalue() or tar_bytes
+
+            helper_img = self._pick_helper_image()
+            temp_c = self.client.containers.create(
+                helper_img,
+                command="true",
+                volumes={vol.name: {"bind": "/backup_dest", "mode": "rw"}},
+            )
+            try:
+                temp_c.put_archive("/backup_dest", final_tar)
+                return {
+                    "volume": vol.name,
+                    "restored_bytes": len(final_tar),
+                    "status": "restored",
+                }
+            finally:
+                try:
+                    temp_c.remove(force=True)
+                except Exception:
+                    pass
+
+        try:
+            return await asyncio.to_thread(_restore)
+        except Exception as e:
+            raise RuntimeError(f"Falha ao restaurar backup no volume '{volume_name}': {e}")
+
+    async def export_container_db_dump(
+        self, container_id: str
+    ) -> tuple[bytes, str, str]:
+        """
+        Gera dump automático de bancos de dados (PostgreSQL pg_dumpall, MySQL/MariaDB mysqldump, Redis)
+        ou exporta snapshot de configuração/dados do contêiner.
+        Retorna (bytes, filename, media_type).
+        """
+        c = await asyncio.to_thread(self.client.containers.get, container_id)
+        img_name = (c.image.tags[0] if c.image.tags else "").lower()
+        c_name = c.name.lower()
+        ts = time.strftime("%Y%m%d_%H%M%S")
+
+        # 1. PostgreSQL
+        if "postgres" in img_name or "postgres" in c_name or c_name.endswith("-db"):
+            res = await self.exec_container_command(
+                container_id,
+                'pg_dumpall -U "${POSTGRES_USER:-postgres}"',
+            )
+            sql = res.get("stdout") or ""
+            if sql.strip():
+                return (
+                    sql.encode("utf-8"),
+                    f"dump_{c.name}_{ts}.sql",
+                    "application/sql",
+                )
+
+        # 2. MySQL / MariaDB
+        if "mysql" in img_name or "mariadb" in img_name:
+            res = await self.exec_container_command(
+                container_id,
+                'mysqldump -u root -p"${MYSQL_ROOT_PASSWORD}" --all-databases',
+            )
+            sql = res.get("stdout") or ""
+            if sql.strip():
+                return (
+                    sql.encode("utf-8"),
+                    f"dump_{c.name}_{ts}.sql",
+                    "application/sql",
+                )
+
+        # 3. Fallback universal: exporta /app ou /usr/share/nginx/html ou /data em .tar
+        for candidate_dir in ("/data", "/app", "/usr/share/nginx/html", "/etc/nginx"):
+            check = await self.exec_container_command(container_id, f'test -d "{candidate_dir}" && echo OK')
+            if "OK" in (check.get("stdout") or ""):
+                raw_bytes, _ = await self.download_container_file(container_id, candidate_dir)
+                return (
+                    raw_bytes,
+                    f"backup_{c.name}_{ts}.tar",
+                    "application/x-tar",
+                )
+
+        raise RuntimeError("Não foi possível gerar dump: contêiner não possui banco ou diretório padrão ativo.")
+
 
 

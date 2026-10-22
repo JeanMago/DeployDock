@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { 
-  X, Plus, Github, Layers, Code, Sparkles, Check, Copy, Rocket, Folder
+import {
+  X, Plus, Github, Layers, Code, Sparkles, Check, Copy, Rocket, Folder, Lock, Cpu
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { ProjectCreate } from '@/services/types';
@@ -20,9 +20,14 @@ const form = ref({
   custom_domain: '',
   repo_url: '',
   branch: 'main',
+  git_token: '',
   dockerfile_path: 'Dockerfile',
   docker_compose_path: 'docker-compose.yml',
   auto_deploy: true,
+  preview_deployments_enabled: true,
+  auto_heal: true,
+  memory_limit_mb: undefined as number | undefined,
+  cpu_limit_cores: undefined as number | undefined,
   webhook_secret: generateSecret(),
   dockerfile_content: `# Dockerfile personalizado
 FROM alpine:latest
@@ -52,10 +57,10 @@ const copyToClipboard = (text: string, type: 'url' | 'secret') => {
   navigator.clipboard.writeText(text);
   if (type === 'url') {
     copiedWebhook.value = true;
-    setTimeout(() => copiedWebhook.value = false, 2000);
+    setTimeout(() => (copiedWebhook.value = false), 2000);
   } else {
     copiedSecret.value = true;
-    setTimeout(() => copiedSecret.value = false, 2000);
+    setTimeout(() => (copiedSecret.value = false), 2000);
   }
 };
 
@@ -65,50 +70,50 @@ const templates = [
     name: 'Site Estático / Nginx',
     desc: 'HTML, CSS e JavaScript servidos via Nginx Alpine',
     icon: Sparkles,
-    tag: 'Nginx'
+    tag: 'Nginx',
   },
   {
     id: 'fastapi' as const,
     name: 'Python (FastAPI)',
     desc: 'API REST assíncrona com Uvicorn e rota /health',
     icon: Code,
-    tag: 'Python 3.11'
+    tag: 'Python 3.11',
   },
   {
     id: 'express' as const,
     name: 'Node.js (Express)',
     desc: 'Servidor web leve em JavaScript / Node.js 20',
     icon: Layers,
-    tag: 'Node.js 20'
+    tag: 'Node.js 20',
   },
   {
     id: 'flask' as const,
     name: 'Python (Flask + Gunicorn)',
     desc: 'Microserviço web pronto para produção com Gunicorn',
     icon: Code,
-    tag: 'Flask WSGI'
+    tag: 'Flask WSGI',
   },
   {
     id: 'adminer' as const,
     name: 'Adminer Database UI',
     desc: 'Painel web 1-Click para gerenciar PostgreSQL/MySQL/SQLite',
     icon: Layers,
-    tag: '1-Click DB UI'
+    tag: '1-Click DB UI',
   },
   {
     id: 'status_page' as const,
     name: 'Status Page Operacional',
     desc: 'Página pública de status de infraestrutura pronta',
     icon: Sparkles,
-    tag: '1-Click App'
+    tag: '1-Click App',
   },
   {
     id: 'custom' as const,
     name: 'Dockerfile Personalizado',
     desc: 'Defina suas próprias instruções Docker diretamente na tela',
     icon: Folder,
-    tag: 'Custom'
-  }
+    tag: 'Custom',
+  },
 ];
 
 const handleSubmit = async (triggerDeployNow: boolean = false) => {
@@ -134,6 +139,10 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       dockerfile_path: form.value.dockerfile_path || 'Dockerfile',
       docker_compose_path: form.value.docker_compose_path || 'docker-compose.yml',
       auto_deploy: form.value.auto_deploy,
+      preview_deployments_enabled: form.value.preview_deployments_enabled,
+      auto_heal: form.value.auto_heal,
+      memory_limit_mb: form.value.memory_limit_mb ? Number(form.value.memory_limit_mb) : undefined,
+      cpu_limit_cores: form.value.cpu_limit_cores ? Number(form.value.cpu_limit_cores) : undefined,
       webhook_secret: form.value.webhook_secret,
     };
 
@@ -144,6 +153,9 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       }
     } else {
       payload.repo_url = form.value.repo_url.trim();
+      if (form.value.git_token.trim()) {
+        payload.git_token = form.value.git_token.trim();
+      }
     }
 
     const created = await api.projects.create(payload);
@@ -175,11 +187,11 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <Plus class="w-5 h-5 text-dock-accent" /> Novo Projeto
           </h3>
           <p class="text-xs text-dock-text-dim mt-0.5">
-            Crie um projeto diretamente ou conecte seu repositório Git. O DeployDock cuida dos arquivos automaticamente.
+            Crie um projeto 1-Click ou conecte seu repositório Git (público ou privado) com Quotas de CPU/RAM e Auto-Healing.
           </p>
         </div>
-        <button 
-          @click="$emit('close')" 
+        <button
+          @click="$emit('close')"
           class="p-1.5 text-dock-text-muted hover:text-dock-text rounded-lg hover:bg-dock-surface transition-colors"
         >
           <X class="w-5 h-5" />
@@ -187,7 +199,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       </div>
 
       <!-- Conteúdo com Scroll -->
-      <div class="p-6 overflow-y-auto space-y-6 flex-1">
+      <div class="p-6 overflow-y-auto space-y-5 flex-1">
         <!-- Alerta de Erro -->
         <div v-if="error" class="p-3 rounded-lg bg-dock-error/15 border border-dock-error/30 text-dock-error text-xs">
           {{ error }}
@@ -201,15 +213,17 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
               type="button"
               @click="mode = 'template'"
               class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all"
-              :class="mode === 'template' 
-                ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm' 
-                : 'bg-dock-surface/50 border-dock-border text-dock-text-muted hover:border-dock-border-light'"
+              :class="
+                mode === 'template'
+                  ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm'
+                  : 'bg-dock-surface/50 border-dock-border text-dock-text-muted hover:border-dock-border-light'
+              "
             >
               <div class="p-2 rounded-lg bg-dock-accent/20 text-dock-accent shrink-0">
                 <Sparkles class="w-5 h-5" />
               </div>
               <div>
-                <div class="text-sm font-semibold text-dock-text">Modelo Pronto (Sem complicação)</div>
+                <div class="text-sm font-semibold text-dock-text">Modelo Pronto (1-Click)</div>
                 <div class="text-xs text-dock-text-dim">Criação instantânea gerenciada pelo DeployDock</div>
               </div>
             </button>
@@ -218,16 +232,18 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
               type="button"
               @click="mode = 'git'"
               class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all"
-              :class="mode === 'git' 
-                ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm' 
-                : 'bg-dock-surface/50 border-dock-border text-dock-text-muted hover:border-dock-border-light'"
+              :class="
+                mode === 'git'
+                  ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm'
+                  : 'bg-dock-surface/50 border-dock-border text-dock-text-muted hover:border-dock-border-light'
+              "
             >
               <div class="p-2 rounded-lg bg-dock-surface text-dock-text shrink-0">
                 <Github class="w-5 h-5" />
               </div>
               <div>
-                <div class="text-sm font-semibold text-dock-text">Repositório Git</div>
-                <div class="text-xs text-dock-text-dim">Clona do GitHub ou GitLab via Webhook</div>
+                <div class="text-sm font-semibold text-dock-text">Repositório Git (Público/Privado)</div>
+                <div class="text-xs text-dock-text-dim">Clona do GitHub/GitLab + Preview Environments</div>
               </div>
             </button>
           </div>
@@ -255,7 +271,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <input
               v-model="form.subdomain"
               type="text"
-              :placeholder="(form.name ? form.name.toLowerCase().replace(/[^a-z0-9]/g, '-') : 'meu-site')"
+              :placeholder="form.name ? form.name.toLowerCase().replace(/[^a-z0-9]/g, '-') : 'meu-site'"
               class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-l-lg px-3 py-2 text-sm text-dock-text outline-none font-mono"
             />
             <span class="bg-dock-bg text-dock-text-dim border border-l-0 border-dock-border rounded-r-lg px-3 py-2 text-xs font-mono select-none">
@@ -276,9 +292,11 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
               :key="tpl.id"
               @click="selectedTemplate = tpl.id"
               class="p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between"
-              :class="selectedTemplate === tpl.id 
-                ? 'bg-dock-accent/10 border-dock-accent shadow-sm' 
-                : 'bg-dock-surface/50 border-dock-border hover:border-dock-border-light'"
+              :class="
+                selectedTemplate === tpl.id
+                  ? 'bg-dock-accent/10 border-dock-accent shadow-sm'
+                  : 'bg-dock-surface/50 border-dock-border hover:border-dock-border-light'
+              "
             >
               <div class="flex items-start justify-between mb-2">
                 <div class="p-2 rounded-lg bg-dock-surface border border-dock-border text-dock-accent">
@@ -316,8 +334,21 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
               placeholder="https://github.com/usuario/repositorio.git"
               class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2.5 text-sm text-dock-text placeholder-dock-text-dim outline-none transition-colors"
             />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-dock-text-muted mb-1.5 flex items-center gap-1.5">
+              <Lock class="w-3.5 h-3.5 text-dock-accent" />
+              Token de Acesso Git / PAT (Opcional — Para Repositórios Privados)
+            </label>
+            <input
+              v-model="form.git_token"
+              type="password"
+              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx ou glpat-xxxxxxxxxxxx"
+              class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2 text-sm font-mono text-dock-text placeholder-dock-text-dim outline-none"
+            />
             <p class="text-[11px] text-dock-text-dim mt-1">
-              O DeployDock clonará o projeto diretamente para o diretório de deploys gerenciado internamente.
+              Criptografado em repouso com Fernet AES-128. Permite clonar repositórios privados do GitHub ou GitLab.
             </p>
           </div>
 
@@ -343,11 +374,58 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
           </div>
         </div>
 
+        <!-- Quotas de Recursos (CPU & RAM) + Auto-Healing -->
+        <div class="p-4 rounded-xl bg-dock-surface/40 border border-dock-border space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-xs uppercase tracking-wider text-dock-text flex items-center gap-1.5">
+              <Cpu class="w-3.5 h-3.5 text-dock-accent" /> Quotas de Recursos (CPU/RAM) & Auto-Healing
+            </span>
+            <span class="text-[10px] font-mono text-dock-text-dim">Proteção contra sobrecarga</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="block text-dock-text-muted mb-1">Limite de Memória RAM (MB)</label>
+              <input
+                v-model.number="form.memory_limit_mb"
+                type="number"
+                min="32"
+                max="65536"
+                placeholder="Ex: 512 (vazio = ilimitado)"
+                class="w-full bg-dock-surface border border-dock-border rounded-lg px-3 py-1.5 font-mono text-dock-text outline-none focus:border-dock-accent"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Limite de CPU (vCPUs)</label>
+              <input
+                v-model.number="form.cpu_limit_cores"
+                type="number"
+                step="0.25"
+                min="0.1"
+                max="32"
+                placeholder="Ex: 1.0 (vazio = ilimitado)"
+                class="w-full bg-dock-surface border border-dock-border rounded-lg px-3 py-1.5 font-mono text-dock-text outline-none focus:border-dock-accent"
+              />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs">
+            <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
+              <input type="checkbox" v-model="form.auto_heal" class="accent-dock-accent" />
+              <span>Auto-Healing ativo (reiniciar contêiner se falhar no Health Check)</span>
+            </label>
+            <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
+              <input type="checkbox" v-model="form.preview_deployments_enabled" class="accent-dock-accent" />
+              <span>Habilitar Preview Deployments por Branch / PR</span>
+            </label>
+          </div>
+        </div>
+
         <!-- Automação & Webhook GitHub -->
         <div class="p-4 rounded-xl bg-dock-surface/40 border border-dock-border space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="font-medium text-sm text-dock-text">Integração Contínua (GitOps)</span>
+              <span class="font-medium text-sm text-dock-text">Integração Contínua (GitOps Webhook)</span>
             </div>
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" v-model="form.auto_deploy" class="sr-only peer" />
@@ -359,7 +437,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <div>
               <div class="text-dock-text-dim mb-1 flex items-center justify-between">
                 <span>Payload URL do Webhook:</span>
-                <button 
+                <button
                   type="button"
                   @click="copyToClipboard(webhookUrl, 'url')"
                   class="text-dock-accent hover:underline flex items-center gap-1"
@@ -377,7 +455,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <div>
               <div class="text-dock-text-dim mb-1 flex items-center justify-between">
                 <span>Segredo do Webhook (Secret):</span>
-                <button 
+                <button
                   type="button"
                   @click="copyToClipboard(form.webhook_secret, 'secret')"
                   class="text-dock-accent hover:underline flex items-center gap-1"

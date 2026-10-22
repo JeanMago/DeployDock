@@ -14,6 +14,7 @@ import {
   Search,
   CheckCircle2,
   AlertTriangle,
+  Download,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { SecurityOverview } from '@/services/types';
@@ -30,6 +31,7 @@ const lastSimulationMsg = ref<string | null>(null);
 // Filtro de auditoria
 const searchQuery = ref('');
 const severityFilter = ref<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+const categoryFilter = ref<'all' | 'waf' | 'deploy' | 'container' | 'backup' | 'rbac'>('all');
 
 // Formulário de bloqueio manual de IP
 const manualIp = ref('');
@@ -134,6 +136,27 @@ const filteredLogs = computed(() => {
     if (severityFilter.value !== 'all' && item.severity !== severityFilter.value) {
       return false;
     }
+    if (categoryFilter.value !== 'all') {
+      const et = item.event_type;
+      if (categoryFilter.value === 'waf' && !['waf_block', 'rate_limit', 'manual_block', 'auth_fail'].includes(et)) {
+        return false;
+      }
+      if (categoryFilter.value === 'deploy' && !['deploy', 'env_change', 'auto_heal'].includes(et)) {
+        return false;
+      }
+      if (
+        categoryFilter.value === 'container' &&
+        !['container_action', 'container_exec', 'file_edit', 'file_upload', 'file_delete', 'resource_quota'].includes(et)
+      ) {
+        return false;
+      }
+      if (categoryFilter.value === 'backup' && et !== 'backup') {
+        return false;
+      }
+      if (categoryFilter.value === 'rbac' && !['rbac', 'auth_success', 'security_config'].includes(et)) {
+        return false;
+      }
+    }
     if (q) {
       const hay = `${item.ip} ${item.path} ${item.detail} ${item.user} ${item.event_type}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -141,6 +164,19 @@ const filteredLogs = computed(() => {
     return true;
   });
 });
+
+const exportAuditLogsJson = () => {
+  const data = JSON.stringify(filteredLogs.value, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `deploydock_audit_logs_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 const formatTime = (iso: string) => {
   try {
@@ -163,15 +199,23 @@ const formatTime = (iso: string) => {
         <div class="flex items-center gap-2">
           <ShieldCheck class="w-5 h-5 text-dock-success" />
           <h2 class="text-lg font-semibold text-dock-text tracking-tight">
-            Segurança, WAF & Prevenção contra Ataques
+            Segurança, WAF & Auditoria de Ações (Audit Log)
           </h2>
         </div>
         <p class="text-xs text-dock-text-muted mt-0.5">
-          Proteção ativa contra força bruta, SQL Injection, XSS, Path Traversal, SSRF e isolamento de contêineres.
+          Proteção ativa contra força bruta, SQLi, XSS, Path Traversal, SSRF e trilha completa de auditoria operacional.
         </p>
       </div>
 
       <div class="flex items-center gap-2">
+        <button
+          @click="exportAuditLogsJson"
+          class="px-3 py-1.5 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-xs font-medium text-dock-text flex items-center gap-1.5 cursor-pointer transition-colors"
+          title="Exportar eventos de auditoria filtrados em JSON"
+        >
+          <Download class="w-3.5 h-3.5 text-dock-accent" />
+          Exportar Audit Log (.json)
+        </button>
         <button
           @click="loadOverview"
           class="px-3 py-1.5 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-xs font-medium text-dock-text flex items-center gap-1.5 cursor-pointer transition-colors"
@@ -488,7 +532,7 @@ const formatTime = (iso: string) => {
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-dock-border pb-3">
           <div class="flex items-center gap-2">
             <h3 class="text-xs font-mono uppercase tracking-wider text-dock-text font-semibold">
-              Registro de Auditoria & Eventos de Segurança
+              Trilha de Auditoria Operacional & Eventos WAF
             </h3>
             <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-dock-bg border border-dock-border text-dock-text-muted">
               {{ filteredLogs.length }} eventos
@@ -502,9 +546,21 @@ const formatTime = (iso: string) => {
                 v-model="searchQuery"
                 type="text"
                 placeholder="Buscar IP, rota, usuário..."
-                class="pl-8 pr-2.5 py-1 rounded bg-dock-bg border border-dock-border text-xs font-mono text-dock-text outline-none focus:border-dock-accent w-48 sm:w-56"
+                class="pl-8 pr-2.5 py-1 rounded bg-dock-bg border border-dock-border text-xs font-mono text-dock-text outline-none focus:border-dock-accent w-44 sm:w-52"
               />
             </div>
+
+            <select
+              v-model="categoryFilter"
+              class="bg-dock-bg border border-dock-border rounded px-2 py-1 text-xs font-mono text-dock-text outline-none"
+            >
+              <option value="all">Todas Categorias</option>
+              <option value="waf">Segurança / WAF / Login</option>
+              <option value="deploy">Deploys / Previews / Auto-Heal</option>
+              <option value="container">Contêineres / Arquivos / Quotas</option>
+              <option value="backup">Backups & Volumes</option>
+              <option value="rbac">Usuários & RBAC</option>
+            </select>
 
             <select
               v-model="severityFilter"
@@ -513,7 +569,7 @@ const formatTime = (iso: string) => {
               <option value="all">Todas Severidades</option>
               <option value="critical">Crítico (WAF Block)</option>
               <option value="high">Alto (Brute-Force/Ban)</option>
-              <option value="medium">Médio (Falha Auth/Rate)</option>
+              <option value="medium">Médio (Alerta/Ação Sensível)</option>
               <option value="low">Baixo (Auditoria Operacional)</option>
             </select>
 
@@ -533,17 +589,18 @@ const formatTime = (iso: string) => {
             <thead>
               <tr class="border-b border-dock-border text-dock-text-dim font-mono text-[11px]">
                 <th class="py-2 px-2.5">Horário</th>
+                <th class="py-2 px-2.5">Tipo</th>
                 <th class="py-2 px-2.5">Severidade</th>
                 <th class="py-2 px-2.5">IP Origem</th>
                 <th class="py-2 px-2.5">Usuário</th>
                 <th class="py-2 px-2.5">Alvo / Rota</th>
-                <th class="py-2 px-2.5">Descrição do Evento</th>
-                <th class="py-2 px-2.5 text-right">Ação</th>
+                <th class="py-2 px-2.5">Descrição da Ação</th>
+                <th class="py-2 px-2.5 text-right">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-dock-border font-mono">
               <tr v-if="filteredLogs.length === 0">
-                <td colspan="7" class="py-8 text-center text-dock-text-dim font-sans">
+                <td colspan="8" class="py-8 text-center text-dock-text-dim font-sans">
                   Nenhum evento registrado para o filtro selecionado.
                 </td>
               </tr>
@@ -554,6 +611,11 @@ const formatTime = (iso: string) => {
               >
                 <td class="py-2 px-2.5 text-dock-text-muted whitespace-nowrap">
                   {{ formatTime(item.timestamp) }}
+                </td>
+                <td class="py-2 px-2.5 whitespace-nowrap">
+                  <span class="px-1.5 py-0.5 rounded bg-dock-surface border border-dock-border text-[10px] text-dock-accent">
+                    {{ item.event_type }}
+                  </span>
                 </td>
                 <td class="py-2 px-2.5 whitespace-nowrap">
                   <span
@@ -569,7 +631,7 @@ const formatTime = (iso: string) => {
                 </td>
                 <td class="py-2 px-2.5 text-dock-text whitespace-nowrap">{{ item.ip }}</td>
                 <td class="py-2 px-2.5 text-dock-text-muted whitespace-nowrap">{{ item.user }}</td>
-                <td class="py-2 px-2.5 text-dock-text-dim truncate max-w-[200px]" :title="item.path">
+                <td class="py-2 px-2.5 text-dock-text-dim truncate max-w-[180px]" :title="item.path">
                   {{ item.path }}
                 </td>
                 <td class="py-2 px-2.5 font-sans text-dock-text">{{ item.detail }}</td>
@@ -580,7 +642,7 @@ const formatTime = (iso: string) => {
                   >
                     <AlertTriangle class="w-3 h-3" /> BLOQUEADO
                   </span>
-                  <span v-else class="text-[10px] text-dock-success">REGISTRADO</span>
+                  <span v-else class="text-[10px] text-dock-success">AUDITADO</span>
                 </td>
               </tr>
             </tbody>

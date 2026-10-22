@@ -2,7 +2,8 @@
 Receptor de Webhooks do GitHub.
 
 Valida a assinatura HMAC-SHA256 e dispara o pipeline de deploy
-em background para eventos de push na branch monitorada.
+em background para eventos de push na branch monitorada ou
+cria Preview Deployments automáticos para outras branches / Pull Requests.
 """
 
 import hashlib
@@ -69,6 +70,26 @@ async def _trigger_deploy(project_id: str, commit_sha: str, branch: str) -> None
         )
 
 
+async def _trigger_preview_deploy(project_id: str, branch: str) -> None:
+    """Dispara Preview Deployment automático para branch/PR em background."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Project).where(Project.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return
+        orchestrator = DeployOrchestrator(
+            docker_service=DockerService(),
+            git_service=GitService(),
+            db_session=session,
+        )
+        try:
+            await orchestrator.deploy_preview(project, branch)
+        except Exception as e:
+            logger.error(f"Falha no preview deploy automático ({project.name}@{branch}): {e}")
+
+
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
 async def github_webhook(
     request: Request,
@@ -78,15 +99,6 @@ async def github_webhook(
     x_hub_signature_256: str = Header(None, alias="X-Hub-Signature-256"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Receptor de webhooks do GitHub pronto para Produção.
-
-    Fluxo:
-    1. Lê o payload bruto e localiza o projeto correspondente ao repositório (normalizando .git)
-    2. Valida a assinatura HMAC-SHA256 usando o `webhook_secret` específico do projeto
-       (ou o `GITHUB_WEBHOOK_SECRET` global para eventos gerais)
-    3. Processa eventos 'ping' e 'push' e dispara o pipeline em background
-    """
     payload_bytes = await request.body()
     if not x_hub_signature_256:
         raise HTTPException(status_code=401, detail="Cabeçalho X-Hub-Signature-256 ausente.")
@@ -101,13 +113,11 @@ async def github_webhook(
     html_url = repo_info.get("html_url", "")
     target_norm = _normalize_repo_url(clone_url or html_url)
 
-    # Buscar todos os projetos para encontrar os que correspondem ao repositório
     all_projects = (await db.execute(select(Project))).scalars().all()
     matching_projects = [
         p for p in all_projects if _normalize_repo_url(p.repo_url) == target_norm
     ]
 
-    # Validar assinatura HMAC contra o webhook_secret do projeto ou secret global
     signature_valid = _verify_hmac(payload_bytes, x_hub_signature_256, settings.GITHUB_WEBHOOK_SECRET)
     if not signature_valid:
         for p in matching_projects:
@@ -133,6 +143,26 @@ async def github_webhook(
             "matched_projects": [p.name for p in matching_projects],
         }
 
+    # Suporte a Pull Requests para Preview Environments
+    if x_github_event == "pull_request":
+        pr_action = payload.get("action", "")
+        pr_num = payload.get("number")
+        pr_head_ref = (payload.get("pull_request") or {}).get("head", {}).get("ref", "")
+        preview_project = next(
+            (p for p in matching_projects if p.preview_deployments_enabled is not False),
+            None,
+        )
+        if preview_project and pr_action in ("opened", "synchronize", "reopened") and pr_head_ref:
+            branch_label = f"pr-{pr_num}" if pr_num else pr_head_ref
+            background_tasks.add_task(_trigger_preview_deploy, str(preview_project.id), branch_label)
+            return {
+                "status": "preview_queued",
+                "project": preview_project.name,
+                "preview_branch": branch_label,
+                "delivery": x_github_delivery,
+            }
+        return {"status": "ignored_pr_action", "action": pr_action}
+
     if x_github_event != "push":
         return {
             "status": "ignored",
@@ -153,6 +183,32 @@ async def github_webhook(
     )
 
     if not project:
+        # Verificar se algum projeto do repositório tem Preview Deployments ativo para branches secundárias
+        preview_proj = next(
+            (
+                p
+                for p in matching_projects
+                if p.auto_deploy and (p.preview_deployments_enabled is not False)
+            ),
+            None,
+        )
+        if preview_proj:
+            security_manager.log_event(
+                event_type="deploy",
+                severity="low",
+                ip=security_manager.get_client_ip(request),
+                path="/api/v1/webhooks/github",
+                detail=f"Preview Deploy via GitHub Webhook para '{preview_proj.name}' ({branch})",
+                user="github-webhook",
+            )
+            background_tasks.add_task(_trigger_preview_deploy, str(preview_proj.id), branch)
+            return {
+                "status": "preview_queued",
+                "project": preview_proj.name,
+                "branch": branch,
+                "delivery": x_github_delivery,
+            }
+
         return {
             "status": "no_matching_project",
             "repo": clone_url or html_url,
@@ -179,4 +235,3 @@ async def github_webhook(
         "commit": commit_sha[:8],
         "delivery": x_github_delivery,
     }
-

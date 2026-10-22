@@ -11,16 +11,24 @@ import {
   Copy,
   Check,
   Power,
+  Bell,
+  Send,
+  Shield,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
-import type { SystemInfo, User } from '@/services/types';
+import type { SystemInfo, User, NotificationOverview } from '@/services/types';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { useAuth } from '@/composables/useAuth';
 
-const { currentUser } = useAuth();
+const { currentUser, isAdmin } = useAuth();
 
 const sysInfo = ref<SystemInfo | null>(null);
 const usersList = ref<User[]>([]);
+const notifOverview = ref<NotificationOverview | null>(null);
+const savingNotif = ref(false);
+const testingNotif = ref(false);
+const notifFeedback = ref('');
+
 const prodCheck = ref<{
   score: number;
   passed_count: number;
@@ -100,7 +108,7 @@ DATABASE_URL=postgresql+asyncpg://deploydock:${generatedDbPassword.value}@db:543
 SECRET_KEY=${generatedSecretKey.value}
 GITHUB_WEBHOOK_SECRET=${generatedWebhookSecret.value}
 
-# Roteamento Público das Aplicações (Traefik v3.6)
+# Roteamento Público das Aplicações (Traefik)
 APPS_BASE_DOMAIN=${effectiveBaseDomain.value}
 DEPLOYDOCK_HOST=${effectivePanelHost.value}
 APPS_TLS_ENABLED=${envGen.value.tlsEnabled ? 'true' : 'false'}
@@ -126,14 +134,16 @@ const copyGeneratedEnv = () => {
 
 const load = async () => {
   try {
-    const [info, users, prod] = await Promise.all([
+    const [info, users, prod, notifs] = await Promise.all([
       api.system.info(),
-      api.auth.listUsers(),
+      api.auth.listUsers().catch(() => []),
       api.system.productionCheck().catch(() => null),
+      api.system.notifications().catch(() => null),
     ]);
     sysInfo.value = info;
     usersList.value = users;
     prodCheck.value = prod;
+    notifOverview.value = notifs;
   } catch (e) {
     console.error(e);
   } finally {
@@ -142,6 +152,40 @@ const load = async () => {
 };
 
 onMounted(load);
+
+const saveNotificationsConfig = async () => {
+  if (!notifOverview.value) return;
+  savingNotif.value = true;
+  notifFeedback.value = '';
+  try {
+    const res = await api.system.updateNotificationsConfig(notifOverview.value.config);
+    notifOverview.value = res.overview;
+    notifFeedback.value = 'Canais e regras de alertas salvos com sucesso!';
+    setTimeout(() => (notifFeedback.value = ''), 4000);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao salvar configurações de notificação.');
+  } finally {
+    savingNotif.value = false;
+  }
+};
+
+const handleTestNotification = async () => {
+  testingNotif.value = true;
+  notifFeedback.value = '';
+  try {
+    const entry = await api.system.testNotification({
+      title: 'Teste de Alerta DeployDock',
+      message: 'Todos os canais de monitoramento de Deploy, WAF e Uptime estão operacionais!',
+      severity: 'info',
+    });
+    notifFeedback.value = `Alerta de teste disparado! Canais atingidos: ${entry.channels.join(', ')}`;
+    notifOverview.value = await api.system.notifications();
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao disparar alerta de teste.');
+  } finally {
+    testingNotif.value = false;
+  }
+};
 
 const createUser = async () => {
   if (!newUser.value.username || !newUser.value.password || !newUser.value.email) {
@@ -159,6 +203,16 @@ const createUser = async () => {
     alert('Erro ao criar usuário: ' + err.message);
   } finally {
     isCreatingUser.value = false;
+  }
+};
+
+const handleRoleChange = async (u: User, newRole: 'admin' | 'developer' | 'viewer') => {
+  try {
+    await api.auth.updateUserRole(u.id, newRole);
+    await load();
+  } catch (err: any) {
+    alert(err?.message || 'Erro ao atualizar permissão do usuário.');
+    await load();
   }
 };
 
@@ -221,15 +275,157 @@ const prune = async () => {
 <template>
   <div class="max-w-5xl mx-auto space-y-6">
     <div>
-      <h2 class="text-lg font-semibold text-dock-text">Configurações & Preparação para Produção</h2>
+      <h2 class="text-lg font-semibold text-dock-text">Configurações, Alertas & Preparação para Produção</h2>
       <p class="text-xs text-dock-text-dim mt-0.5">
-        Diagnóstico do ambiente, gerador de `.env` para VPS (Oracle Cloud / Hostgrid), controle de usuários RBAC e senhas
+        Notificações Multicanal (Discord/Telegram/Slack), gerador de `.env` para VPS, checklist de produção e controle RBAC
       </p>
     </div>
 
     <div v-if="loading" class="flex justify-center py-10"><LoadingSpinner /></div>
     <div v-else-if="sysInfo" class="space-y-6">
-      <!-- 1. Diagnóstico de Prontidão para Produção -->
+      <!-- 1. Central de Alertas & Notificações (Discord / Telegram / Slack / Webhook) -->
+      <div v-if="notifOverview" class="glass-panel p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-3">
+          <div>
+            <h3 class="font-semibold text-sm text-dock-text flex items-center gap-2">
+              <Bell class="w-4 h-4 text-dock-accent" />
+              Central de Alertas & Notificações (Discord / Telegram / Slack / Webhook)
+            </h3>
+            <p class="text-xs text-dock-text-dim mt-0.5">
+              Receba avisos automáticos em tempo real quando um deploy terminar, um ataque WAF for bloqueado ou um contêiner cair.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              @click="handleTestNotification"
+              :disabled="testingNotif"
+              class="px-3 py-1.5 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-xs font-medium text-dock-text flex items-center gap-1.5 cursor-pointer"
+            >
+              <Send class="w-3.5 h-3.5 text-dock-accent" />
+              {{ testingNotif ? 'Enviando...' : 'Disparar Alerta de Teste' }}
+            </button>
+            <button
+              v-if="isAdmin"
+              @click="saveNotificationsConfig"
+              :disabled="savingNotif"
+              class="px-3.5 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white text-xs font-medium cursor-pointer"
+            >
+              {{ savingNotif ? 'Salvando...' : 'Salvar Canais' }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="notifFeedback"
+          class="px-3 py-2 rounded bg-dock-success/15 border border-dock-success/30 text-dock-success text-xs flex items-center gap-2"
+        >
+          <CheckCircle2 class="w-4 h-4 shrink-0" />
+          <span>{{ notifFeedback }}</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="block text-dock-text-muted mb-1">Discord Webhook URL</label>
+            <input
+              v-model="notifOverview.config.discord_webhook_url"
+              type="text"
+              :disabled="!isAdmin"
+              placeholder="https://discord.com/api/webhooks/..."
+              class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-dock-text-muted mb-1">Slack Incoming Webhook URL</label>
+            <input
+              v-model="notifOverview.config.slack_webhook_url"
+              type="text"
+              :disabled="!isAdmin"
+              placeholder="https://hooks.slack.com/services/..."
+              class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-dock-text-muted mb-1">Telegram Bot Token</label>
+            <input
+              v-model="notifOverview.config.telegram_bot_token"
+              type="password"
+              :disabled="!isAdmin"
+              placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
+              class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-dock-text-muted mb-1">Telegram Chat ID</label>
+              <input
+                v-model="notifOverview.config.telegram_chat_id"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="-100123456789"
+                class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Webhook Customizado (POST)</label>
+              <input
+                v-model="notifOverview.config.custom_webhook_url"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="https://seu-endpoint.com/hook"
+                class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Gatilhos de Eventos -->
+        <div class="p-3 rounded bg-dock-bg border border-dock-border flex flex-wrap items-center justify-between gap-3 text-xs">
+          <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+            <input type="checkbox" v-model="notifOverview.config.notify_on_deploy_success" :disabled="!isAdmin" class="accent-dock-accent" />
+            <span>Deploy com Sucesso</span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+            <input type="checkbox" v-model="notifOverview.config.notify_on_deploy_failure" :disabled="!isAdmin" class="accent-dock-accent" />
+            <span>Falha / Rollback de Deploy</span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+            <input type="checkbox" v-model="notifOverview.config.notify_on_waf_block" :disabled="!isAdmin" class="accent-dock-accent" />
+            <span>Ataque Bloqueado pelo WAF</span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+            <input type="checkbox" v-model="notifOverview.config.notify_on_container_down" :disabled="!isAdmin" class="accent-dock-accent" />
+            <span>Queda de Contêiner / Auto-Heal</span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+            <input type="checkbox" v-model="notifOverview.config.notify_on_high_resource" :disabled="!isAdmin" class="accent-dock-accent" />
+            <span>CPU/RAM &gt; {{ notifOverview.config.cpu_threshold_percent }}%</span>
+          </label>
+        </div>
+
+        <!-- Últimos Alertas Disparados -->
+        <div v-if="notifOverview.history.length > 0" class="space-y-1.5 pt-1">
+          <div class="text-[11px] font-mono uppercase text-dock-text-dim">
+            Últimos Alertas Disparados ({{ notifOverview.history.length }})
+          </div>
+          <div class="max-h-36 overflow-y-auto space-y-1.5 font-mono text-xs">
+            <div
+              v-for="item in notifOverview.history.slice(0, 6)"
+              :key="item.id"
+              class="px-3 py-2 rounded bg-dock-bg border border-dock-border flex items-center justify-between gap-2"
+            >
+              <div class="min-w-0">
+                <span class="font-semibold text-dock-text">{{ item.title }}</span>
+                <span class="text-dock-text-dim ml-2 truncate">{{ item.message }}</span>
+              </div>
+              <span class="px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-[10px] text-dock-accent shrink-0">
+                {{ item.channels.join(', ') }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Diagnóstico de Prontidão para Produção -->
       <div v-if="prodCheck" class="glass-panel p-5 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-3">
           <div>
@@ -269,7 +465,7 @@ const prune = async () => {
         </div>
       </div>
 
-      <!-- 2. Gerador Interativo de .env para Produção (Oracle Cloud / Hostgrid) -->
+      <!-- 3. Gerador Interativo de .env para Produção (Oracle Cloud / Hostgrid) -->
       <div class="glass-panel p-5 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-3">
           <div>
@@ -365,7 +561,7 @@ const prune = async () => {
         <pre class="p-3 rounded bg-dock-bg border border-dock-border font-mono text-[11px] text-dock-text overflow-x-auto leading-relaxed">{{ generatedEnvContent }}</pre>
       </div>
 
-      <!-- 3. Alterar Senha da Conta Atual -->
+      <!-- 4. Alterar Senha da Conta Atual -->
       <div class="glass-panel p-5 space-y-3">
         <h3 class="flex items-center gap-2 font-semibold text-sm border-b border-dock-border pb-2.5 text-dock-text">
           <KeyRound class="w-4 h-4 text-dock-accent" /> Alterar Minha Senha ({{ currentUser?.username }})
@@ -393,13 +589,34 @@ const prune = async () => {
         </div>
       </div>
 
-      <!-- 4. Controle de Acesso e Usuários (RBAC) -->
+      <!-- 5. Controle de Acesso e Usuários (RBAC) -->
       <div class="glass-panel p-5 space-y-4">
-        <h3 class="flex items-center gap-2 font-semibold text-sm border-b border-dock-border pb-2.5 text-dock-text">
-          <Server class="w-4 h-4 text-dock-accent" /> Controle de Acesso e Usuários (RBAC)
-        </h3>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-2.5">
+          <h3 class="flex items-center gap-2 font-semibold text-sm text-dock-text">
+            <Shield class="w-4 h-4 text-dock-accent" /> Controle de Acesso Baseado em Papéis (RBAC)
+          </h3>
+          <span class="text-[11px] font-mono text-dock-text-dim">
+            Seu nível atual: <strong class="text-dock-accent uppercase">{{ currentUser?.role }}</strong>
+          </span>
+        </div>
 
-        <div class="p-3.5 rounded bg-dock-bg border border-dock-border">
+        <!-- Matriz rápida de permissões RBAC -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+          <div class="p-2.5 rounded bg-dock-bg border border-dock-border">
+            <div class="font-mono font-semibold text-dock-accent uppercase text-[11px]">Admin</div>
+            <div class="text-dock-text-dim mt-0.5">Acesso total: projetos, contêineres, WAF, usuários RBAC, notificações e prune.</div>
+          </div>
+          <div class="p-2.5 rounded bg-dock-bg border border-dock-border">
+            <div class="font-mono font-semibold text-dock-success uppercase text-[11px]">Developer</div>
+            <div class="text-dock-text-dim mt-0.5">Deploys, rollbacks, preview branches, editor de arquivos, terminal exec e backups.</div>
+          </div>
+          <div class="p-2.5 rounded bg-dock-bg border border-dock-border">
+            <div class="font-mono font-semibold text-dock-text-muted uppercase text-[11px]">Viewer (Auditor)</div>
+            <div class="text-dock-text-dim mt-0.5">Somente leitura: monitora métricas, logs, status de projetos e painel de segurança.</div>
+          </div>
+        </div>
+
+        <div v-if="isAdmin" class="p-3.5 rounded bg-dock-bg border border-dock-border">
           <h4 class="text-xs font-semibold text-dock-text mb-2.5">Cadastrar Novo Usuário</h4>
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
             <input
@@ -446,7 +663,7 @@ const prune = async () => {
               <tr class="border-b border-dock-border text-dock-text-muted">
                 <th class="py-2 font-medium">Usuário</th>
                 <th class="py-2 font-medium">E-mail</th>
-                <th class="py-2 font-medium">Papel (Role)</th>
+                <th class="py-2 font-medium">Papel (Role RBAC)</th>
                 <th class="py-2 font-medium">Status</th>
                 <th class="py-2 font-medium text-right">Ações</th>
               </tr>
@@ -456,7 +673,18 @@ const prune = async () => {
                 <td class="py-2.5 font-mono text-dock-text font-medium">{{ u.username }}</td>
                 <td class="py-2.5 text-dock-text-dim">{{ u.email }}</td>
                 <td class="py-2.5">
+                  <select
+                    v-if="isAdmin && u.id !== currentUser?.id"
+                    :value="u.role"
+                    @change="handleRoleChange(u, ($event.target as HTMLSelectElement).value as any)"
+                    class="bg-dock-bg border border-dock-border rounded px-2 py-0.5 font-mono text-[11px] uppercase text-dock-text outline-none cursor-pointer"
+                  >
+                    <option value="admin">ADMIN</option>
+                    <option value="developer">DEVELOPER</option>
+                    <option value="viewer">VIEWER</option>
+                  </select>
                   <span
+                    v-else
                     class="font-mono text-[10px] uppercase px-2 py-0.5 rounded border"
                     :class="
                       u.role === 'admin'
@@ -478,7 +706,7 @@ const prune = async () => {
                   </span>
                 </td>
                 <td class="py-2.5 text-right">
-                  <div v-if="u.id !== currentUser?.id" class="inline-flex items-center gap-1.5">
+                  <div v-if="isAdmin && u.id !== currentUser?.id" class="inline-flex items-center gap-1.5">
                     <button
                       @click="handleToggleUser(u)"
                       class="p-1 rounded bg-dock-bg hover:bg-dock-panel border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
@@ -494,7 +722,7 @@ const prune = async () => {
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <span v-else class="text-[10px] font-mono text-dock-text-dim">Você</span>
+                  <span v-else-if="u.id === currentUser?.id" class="text-[10px] font-mono text-dock-text-dim">Você</span>
                 </td>
               </tr>
             </tbody>
@@ -502,7 +730,7 @@ const prune = async () => {
         </div>
       </div>
 
-      <!-- 5. Manutenção Docker -->
+      <!-- 6. Manutenção Docker -->
       <div class="glass-panel p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 class="flex items-center gap-2 font-semibold text-sm text-dock-text">

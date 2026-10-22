@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  docker-benchmark-probe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docker_benchmark_probe
+    ports:
+      - "${BENCHMARK_PORT:-8095}:8080"
+    environment:
+      - PLATFORM_NAME=${PLATFORM_NAME:-Auto-Detect}
+      - DEPLOYDOCK_API_URL=${DEPLOYDOCK_API_URL:-http://host.docker.internal:8000}
+      - DEPLOYDOCK_USERNAME=${DEPLOYDOCK_USERNAME:-admin}
+      - DEPLOYDOCK_PASSWORD=${DEPLOYDOCK_PASSWORD:-admin123}
+      - BENCHMARK_ENV_INJECTED=compose-injected-ok
+    volumes:
+      - benchmark_workspace:/app/workspace
+      - benchmark_reports:/app/reports
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  benchmark_workspace:
+  benchmark_reports:

@@ -1,0 +1,44 @@
+{
+  "current_platform_snapshot": {
+    "platform_id": "portainer_ce_sample",
+    "platform_name": "Portainer CE 2.21 (Execução Comparativa)",
+    "type": "Gerenciador de Contêineres Docker",
+    "is_reference": false,
+    "is_imported": true,
+    "idle_ram_mb": 148.5,
+    "radar_scores": {
+      "security_waf": 35,
+      "container_hardening": 45,
+      "gitops_deploy": 40,
+      "observability": 72,
+      "files_and_backups": 55,
+      "efficiency": 92
+    },
+    "overall_score": 56,
+    "features": {
+      "waf_integrated": false,
+      "brute_force_rate_limit": true,
+      "container_hardening_default": false,
+      "rbac_roles": true,
+      "fernet_env_encryption": false,
+      "gitops_auto_dockerfile": false,
+      "preview_deployments": false,
+      "auto_rollback": false,
+      "traefik_ssl_routing": false,
+      "container_file_explorer": false,
+      "web_terminal_guarded": false,
+      "live_cgroup_quotas": true,
+      "advanced_log_viewer": true,
+      "uptime_and_autoheal": false,
+      "volume_targz_backup": false,
+      "multichannel_alerts": false,
+      "low_memory_footprint": true
+    },
+    "benchmark": {
+      "cpu_ops_per_sec": 1142000,
+      "memory_throughput_mb_s": 3180.0,
+      "disk_write_mb_s": 102.4,
+      "disk_read_mb_s": 151.2
+    }
+  }
+}

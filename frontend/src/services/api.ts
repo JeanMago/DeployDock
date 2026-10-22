@@ -1,8 +1,9 @@
 import type {
   Container, ContainerDetail, ContainerLogsResponse, ContainerExecResponse,
-  Project, ProjectCreate, ProjectUpdate, Deployment,
+  Project, ProjectCreate, ProjectUpdate, ProjectPreview, Deployment,
   EnvironmentVariable, SystemInfo, SystemResourcesOverview, PruneResult, RoutingConfig,
-  User, TokenResponse
+  User, TokenResponse, NotificationOverview, NotificationConfig, NotificationHistoryItem,
+  ProjectHealthcheck
 } from './types';
 
 const API_BASE = '/api/v1';
@@ -44,6 +45,37 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return res.json() as Promise<T>;
 }
 
+async function downloadBlob(endpoint: string, fallbackFilename: string): Promise<void> {
+  const token = localStorage.getItem('deploydock_token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${endpoint}`, { headers });
+  if (!res.ok) {
+    let errorDetail = '';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || JSON.stringify(errJson);
+    } catch {
+      errorDetail = await res.text().catch(() => '');
+    }
+    throw new Error(errorDetail || `Falha no download (${res.status})`);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  const match = cd.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || fallbackFilename;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   auth: {
     login: (credentials: { username: string; password: string }) =>
@@ -63,6 +95,11 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ current_password, new_password }),
       }),
+    updateUserRole: (userId: string, role: 'admin' | 'developer' | 'viewer') =>
+      request<User>(`/auth/users/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
     toggleUser: (userId: string) =>
       request<User>(`/auth/users/${userId}/toggle`, {
         method: 'PATCH',
@@ -79,6 +116,17 @@ export const api = {
     stop: (id: string) => request<{message: string}>(`/containers/${id}/stop`, { method: 'POST' }),
     restart: (id: string) => request<{message: string}>(`/containers/${id}/restart`, { method: 'POST' }),
     remove: (id: string) => request<{message: string}>(`/containers/${id}`, { method: 'DELETE' }),
+    updateResources: (
+      id: string,
+      payload: { memory_limit_mb?: number | null; cpu_limit_cores?: number | null }
+    ) =>
+      request<{ id: string; name: string; memory_limit_mb: number | null; cpu_limit_cores: number | null }>(
+        `/containers/${id}/resources`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }
+      ),
     getLogs: (
       id: string,
       params?: { tail?: number; timestamps?: boolean; since_seconds?: number; search?: string }
@@ -127,6 +175,34 @@ export const api = {
       request<{ path: string; content: string; stderr: string; exit_code: number }>(
         `/containers/${id}/files/content?path=${encodeURIComponent(path)}`
       ),
+    writeFile: (id: string, path: string, content: string, restart: boolean = false) =>
+      request<{ path: string; size_bytes: number; restarted: boolean }>(
+        `/containers/${id}/files/content`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ path, content, restart }),
+        }
+      ),
+    uploadFile: (id: string, dir_path: string, filename: string, content_base64: string) =>
+      request<{ path: string; filename: string; size_bytes: number }>(
+        `/containers/${id}/files/upload`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ dir_path, filename, content_base64 }),
+        }
+      ),
+    downloadFile: (id: string, path: string) =>
+      downloadBlob(
+        `/containers/${id}/files/download?path=${encodeURIComponent(path)}`,
+        path.split('/').pop() || 'arquivo'
+      ),
+    deleteFile: (id: string, path: string) =>
+      request<{ deleted: string; exit_code: number }>(
+        `/containers/${id}/files?path=${encodeURIComponent(path)}`,
+        { method: 'DELETE' }
+      ),
+    downloadDbDump: (id: string, containerName: string = 'container') =>
+      downloadBlob(`/containers/${id}/db-dump`, `dump_${containerName}.sql`),
   },
   projects: {
     list: () => request<Project[]>('/projects'),
@@ -154,7 +230,28 @@ export const api = {
         method: 'POST',
       }),
     healthcheck: (projectId: string) =>
-      request<import('./types').ProjectHealthcheck>(`/projects/${projectId}/healthcheck`),
+      request<ProjectHealthcheck>(`/projects/${projectId}/healthcheck`),
+    uptimeOverview: () =>
+      request<{ total_auto_heals: number; projects: Record<string, ProjectHealthcheck> }>(
+        '/projects/uptime/overview'
+      ),
+    uptimeCheckNow: () =>
+      request<{ total_auto_heals: number; projects: Record<string, ProjectHealthcheck> }>(
+        '/projects/uptime/check-now',
+        { method: 'POST' }
+      ),
+    listPreviews: (projectId: string) =>
+      request<ProjectPreview[]>(`/projects/${projectId}/previews`),
+    createPreview: (projectId: string, branch: string) =>
+      request<ProjectPreview>(`/projects/${projectId}/previews`, {
+        method: 'POST',
+        body: JSON.stringify({ branch }),
+      }),
+    deletePreview: (projectId: string, branchSlug: string) =>
+      request<{ deleted: string }>(
+        `/projects/${projectId}/previews/${encodeURIComponent(branchSlug)}`,
+        { method: 'DELETE' }
+      ),
   },
   deployments: {
     list: (projectId?: string) => request<Deployment[]>(projectId ? `/deployments?project_id=${projectId}` : '/deployments'),
@@ -168,8 +265,32 @@ export const api = {
     deleteImage: (id: string) => request<{message: string}>(`/system/images/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     listVolumes: () => request<any[]>('/system/volumes'),
     deleteVolume: (name: string) => request<{message: string}>(`/system/volumes/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    backupVolume: (name: string) =>
+      downloadBlob(`/system/volumes/${encodeURIComponent(name)}/backup`, `volume_${name}.tar.gz`),
+    restoreVolume: (name: string, archive_base64: string) =>
+      request<{ volume: string; restored_bytes: number; status: string }>(
+        `/system/volumes/${encodeURIComponent(name)}/restore`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ archive_base64 }),
+        }
+      ),
     listNetworks: () => request<any[]>('/system/networks'),
     prune: (target: string = 'all') => request<PruneResult>(`/system/prune?target=${encodeURIComponent(target)}`, { method: 'POST' }),
+    notifications: () => request<NotificationOverview>('/system/notifications'),
+    updateNotificationsConfig: (data: Partial<NotificationConfig>) =>
+      request<{ config: NotificationConfig; overview: NotificationOverview }>(
+        '/system/notifications/config',
+        {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }
+      ),
+    testNotification: (payload?: { title?: string; message?: string; severity?: string }) =>
+      request<NotificationHistoryItem>('/system/notifications/test', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+      }),
     productionCheck: () =>
       request<{
         score: number;
@@ -213,5 +334,3 @@ export const api = {
     delete: (id: string) => request<{message: string}>(`/env/${id}`, { method: 'DELETE' })
   }
 };
-
-

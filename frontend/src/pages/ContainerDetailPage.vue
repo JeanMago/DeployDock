@@ -13,6 +13,14 @@ import {
   Folder,
   FileCode,
   CornerLeftUp,
+  Save,
+  Upload,
+  Download,
+  FilePlus,
+  RotateCcw,
+  Cpu,
+  Database,
+  CheckCircle2,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { ContainerDetail } from '@/services/types';
@@ -53,7 +61,7 @@ const quickCommands = [
   { label: 'Processos Ativos (ps aux)', cmd: 'ps aux' },
   { label: 'Uso de Disco (df -h)', cmd: 'df -h' },
   { label: 'Sistema Operacional', cmd: 'cat /etc/os-release' },
-  { label: ' Portas Abertas', cmd: 'netstat -tlpn 2>/dev/null || ss -tlpn' },
+  { label: 'Portas Abertas', cmd: 'netstat -tlpn 2>/dev/null || ss -tlpn' },
   { label: 'Variáveis (env)', cmd: 'env | sort' },
 ];
 
@@ -115,9 +123,18 @@ const formattedPorts = computed(() => {
   return result;
 });
 
+// Quotas de Recursos (CPU & RAM) em tempo real
+const quotaMemoryMb = ref<number | undefined>(undefined);
+const quotaCpuCores = ref<number | undefined>(undefined);
+const savingQuotas = ref(false);
+const quotaFeedback = ref('');
+
 const load = async () => {
   try {
-    container.value = await api.containers.get(route.params.id as string);
+    const data = await api.containers.get(route.params.id as string);
+    container.value = data;
+    quotaMemoryMb.value = data.memory_limit_mb ?? undefined;
+    quotaCpuCores.value = data.cpu_limit_cores ?? undefined;
   } catch (e) {
     console.error(e);
   } finally {
@@ -125,7 +142,40 @@ const load = async () => {
   }
 };
 
-// Estado do Explorador de Arquivos do Contêiner
+const saveResourceQuotas = async () => {
+  if (!container.value) return;
+  savingQuotas.value = true;
+  quotaFeedback.value = '';
+  try {
+    await api.containers.updateResources(container.value.id, {
+      memory_limit_mb: quotaMemoryMb.value ? Number(quotaMemoryMb.value) : null,
+      cpu_limit_cores: quotaCpuCores.value ? Number(quotaCpuCores.value) : null,
+    });
+    quotaFeedback.value = 'Limites de CPU e RAM aplicados em tempo real no Docker Engine!';
+    await load();
+    setTimeout(() => (quotaFeedback.value = ''), 4000);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao atualizar limites de recursos.');
+  } finally {
+    savingQuotas.value = false;
+  }
+};
+
+// Dump / Backup do Contêiner
+const exportingDump = ref(false);
+const handleExportDump = async () => {
+  if (!container.value) return;
+  exportingDump.value = true;
+  try {
+    await api.containers.downloadDbDump(container.value.id, container.value.name);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao exportar dump/backup do contêiner.');
+  } finally {
+    exportingDump.value = false;
+  }
+};
+
+// Estado do Explorador e Editor de Arquivos do Contêiner
 const currentDir = ref('/');
 const dirItems = ref<
   {
@@ -141,6 +191,12 @@ const dirItems = ref<
 >([]);
 const loadingFiles = ref(false);
 const viewingFile = ref<{ path: string; content: string } | null>(null);
+const editingContent = ref('');
+const savingFile = ref(false);
+const fileFeedback = ref('');
+const fileInputRef = ref<HTMLInputElement | null>(null);
+const showNewFilePrompt = ref(false);
+const newFileName = ref('');
 
 const loadDirectory = async (targetPath: string = '/') => {
   if (!container.value || container.value.state !== 'running') return;
@@ -172,12 +228,98 @@ const openFileOrDir = async (item: (typeof dirItems.value)[0]) => {
     try {
       const res = await api.containers.readFile(container.value.id, item.path);
       viewingFile.value = { path: res.path, content: res.content };
+      editingContent.value = res.content;
+      fileFeedback.value = '';
     } catch (e: any) {
       alert(e?.message || 'Erro ao ler arquivo');
     } finally {
       loadingFiles.value = false;
     }
   }
+};
+
+const createNewFileInDir = () => {
+  const fname = newFileName.value.trim();
+  if (!fname) return;
+  const fullPath =
+    currentDir.value === '/' ? `/${fname}` : `${currentDir.value.replace(/\/$/, '')}/${fname}`;
+  viewingFile.value = { path: fullPath, content: '' };
+  editingContent.value = '';
+  showNewFilePrompt.value = false;
+  newFileName.value = '';
+};
+
+const saveEditedFile = async (restartAfter: boolean = false) => {
+  if (!container.value || !viewingFile.value) return;
+  savingFile.value = true;
+  fileFeedback.value = '';
+  try {
+    await api.containers.writeFile(
+      container.value.id,
+      viewingFile.value.path,
+      editingContent.value,
+      restartAfter
+    );
+    viewingFile.value.content = editingContent.value;
+    fileFeedback.value = restartAfter
+      ? 'Arquivo salvo e contêiner reiniciado com sucesso!'
+      : 'Arquivo salvo dentro do contêiner com sucesso!';
+    if (restartAfter) {
+      await load();
+    }
+    setTimeout(() => (fileFeedback.value = ''), 4000);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao salvar arquivo no contêiner.');
+  } finally {
+    savingFile.value = false;
+  }
+};
+
+const handleDownloadFile = async (filePath: string) => {
+  if (!container.value) return;
+  try {
+    await api.containers.downloadFile(container.value.id, filePath);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao baixar arquivo.');
+  }
+};
+
+const handleDeleteFile = async (filePath: string) => {
+  if (!container.value) return;
+  if (!confirm(`Deseja realmente excluir "${filePath}" dentro do contêiner?`)) return;
+  try {
+    await api.containers.deleteFile(container.value.id, filePath);
+    await loadDirectory(currentDir.value);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao excluir arquivo.');
+  }
+};
+
+const triggerUploadFile = () => {
+  fileInputRef.value?.click();
+};
+
+const onFileSelectedForUpload = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file || !container.value) return;
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const resultStr = String(reader.result || '');
+    const base64 = resultStr.includes(',') ? (resultStr.split(',')[1] || '') : resultStr;
+    loadingFiles.value = true;
+    try {
+      await api.containers.uploadFile(container.value!.id, currentDir.value, file.name, base64);
+      await loadDirectory(currentDir.value);
+    } catch (e: any) {
+      alert(e?.message || 'Erro ao enviar arquivo para o contêiner.');
+    } finally {
+      loadingFiles.value = false;
+      input.value = '';
+    }
+  };
+  reader.readAsDataURL(file);
 };
 
 watch(activeTab, (tab) => {
@@ -216,13 +358,35 @@ onMounted(load);
               {{ container.name }}
             </h1>
             <StatusBadge :status="container.state || container.status" size="sm" />
+            <span
+              v-if="container.memory_limit_mb"
+              class="text-[10px] font-mono px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-dock-accent"
+            >
+              RAM Máx: {{ container.memory_limit_mb }} MB
+            </span>
+            <span
+              v-if="container.cpu_limit_cores"
+              class="text-[10px] font-mono px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-dock-accent"
+            >
+              CPU Máx: {{ container.cpu_limit_cores }} vCPU
+            </span>
           </div>
           <div class="text-xs text-dock-text-dim font-mono mt-0.5 truncate">
             {{ container.image }} • id: {{ container.id.substring(0, 12) }}
           </div>
         </div>
       </div>
-      <div class="self-start sm:self-auto">
+      <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+        <button
+          v-if="container.state === 'running'"
+          @click="handleExportDump"
+          :disabled="exportingDump"
+          class="px-2.5 py-1.5 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-xs font-medium text-dock-text flex items-center gap-1.5 cursor-pointer transition-colors"
+          title="Gera dump SQL (Postgres/MySQL) ou snapshot .tar dos arquivos da aplicação"
+        >
+          <Database class="w-3.5 h-3.5 text-dock-accent" />
+          {{ exportingDump ? 'Exportando...' : 'Exportar Dump / Backup' }}
+        </button>
         <ContainerActions
           :containerId="container.id"
           :status="container.state || container.status"
@@ -264,7 +428,7 @@ onMounted(load);
             : 'text-dock-text-muted hover:text-dock-text border border-transparent'
         "
       >
-        <FolderOpen class="w-3.5 h-3.5" /> Arquivos do Contêiner
+        <FolderOpen class="w-3.5 h-3.5" /> Editor & Arquivos
       </button>
       <button
         @click="activeTab = 'metrics'"
@@ -286,7 +450,7 @@ onMounted(load);
             : 'text-dock-text-muted hover:text-dock-text border border-transparent'
         "
       >
-        <Info class="w-3.5 h-3.5" /> Inspeção & Ambiente
+        <Info class="w-3.5 h-3.5" /> Inspeção & Quotas
       </button>
     </div>
 
@@ -295,8 +459,15 @@ onMounted(load);
       <LogViewer :containerId="container.id" />
     </div>
 
-    <!-- ABA ARQUIVOS DO CONTÊINER -->
+    <!-- ABA ARQUIVOS & EDITOR DO CONTÊINER -->
     <div v-else-if="activeTab === 'files'" class="glass-panel p-4 space-y-3">
+      <input
+        ref="fileInputRef"
+        type="file"
+        class="hidden"
+        @change="onFileSelectedForUpload"
+      />
+
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-dock-border pb-3">
         <div class="flex items-center gap-2 font-mono text-xs">
           <button
@@ -311,7 +482,7 @@ onMounted(load);
           </span>
         </div>
 
-        <div class="flex flex-wrap gap-1.5 font-mono text-[11px]">
+        <div class="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
           <button
             v-for="quickPath in ['/', '/app', '/etc/nginx', '/usr/share/nginx/html', '/var/log']"
             :key="quickPath"
@@ -320,21 +491,102 @@ onMounted(load);
           >
             {{ quickPath }}
           </button>
+
+          <button
+            @click="showNewFilePrompt = !showNewFilePrompt"
+            class="px-2.5 py-1 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-dock-accent flex items-center gap-1 cursor-pointer font-sans font-medium"
+          >
+            <FilePlus class="w-3.5 h-3.5" /> Novo Arquivo
+          </button>
+
+          <button
+            @click="triggerUploadFile"
+            class="px-2.5 py-1 rounded bg-dock-accent hover:bg-dock-accent-hover text-white flex items-center gap-1 cursor-pointer font-sans font-medium"
+          >
+            <Upload class="w-3.5 h-3.5" /> Upload
+          </button>
         </div>
       </div>
 
-      <!-- Visualizador de Arquivo Selecionado -->
-      <div v-if="viewingFile" class="space-y-2">
-        <div class="flex items-center justify-between bg-dock-surface px-3 py-2 rounded border border-dock-border font-mono text-xs">
-          <span class="text-dock-text">{{ viewingFile.path }}</span>
-          <button
-            @click="viewingFile = null"
-            class="px-2 py-0.5 rounded bg-dock-bg border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
-          >
-            Voltar à pasta
-          </button>
+      <!-- Barra para criar novo arquivo -->
+      <div
+        v-if="showNewFilePrompt"
+        class="p-2.5 rounded bg-dock-bg border border-dock-border flex items-center gap-2 text-xs"
+      >
+        <span class="font-mono text-dock-text-dim">{{ currentDir.replace(/\/$/, '') }}/</span>
+        <input
+          v-model="newFileName"
+          type="text"
+          placeholder="nome-do-arquivo.conf"
+          class="flex-1 bg-dock-surface border border-dock-border rounded px-2.5 py-1 font-mono text-dock-text outline-none focus:border-dock-accent"
+          @keyup.enter="createNewFileInDir"
+        />
+        <button
+          @click="createNewFileInDir"
+          class="px-3 py-1 rounded bg-dock-accent text-white font-medium cursor-pointer"
+        >
+          Abrir no Editor
+        </button>
+        <button
+          @click="showNewFilePrompt = false"
+          class="px-2 py-1 text-dock-text-dim hover:text-dock-text cursor-pointer"
+        >
+          Cancelar
+        </button>
+      </div>
+
+      <!-- Editor de Arquivo Selecionado -->
+      <div v-if="viewingFile" class="space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-dock-surface px-3 py-2 rounded border border-dock-border text-xs">
+          <div class="font-mono text-dock-accent font-medium truncate">
+            {{ viewingFile.path }}
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button
+              @click="saveEditedFile(false)"
+              :disabled="savingFile"
+              class="px-2.5 py-1 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <Save class="w-3.5 h-3.5" /> {{ savingFile ? 'Salvando...' : 'Salvar Arquivo' }}
+            </button>
+            <button
+              @click="saveEditedFile(true)"
+              :disabled="savingFile"
+              class="px-2.5 py-1 rounded bg-dock-surface hover:bg-dock-panel border border-dock-accent/40 text-dock-accent font-medium flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              title="Salva o arquivo e reinicia o contêiner imediatamente para aplicar configurações"
+            >
+              <RotateCcw class="w-3.5 h-3.5" /> Salvar & Reiniciar
+            </button>
+            <button
+              @click="handleDownloadFile(viewingFile.path)"
+              class="px-2.5 py-1 rounded bg-dock-bg border border-dock-border text-dock-text-muted hover:text-dock-text flex items-center gap-1 cursor-pointer"
+            >
+              <Download class="w-3.5 h-3.5" /> Baixar
+            </button>
+            <button
+              @click="viewingFile = null; loadDirectory(currentDir)"
+              class="px-2.5 py-1 rounded bg-dock-bg border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
+            >
+              Voltar à pasta
+            </button>
+          </div>
         </div>
-        <pre class="p-3 rounded bg-dock-bg border border-dock-border font-mono text-xs text-dock-text max-h-[420px] overflow-auto whitespace-pre-wrap">{{ viewingFile.content || '(arquivo vazio)' }}</pre>
+
+        <div
+          v-if="fileFeedback"
+          class="px-3 py-2 rounded bg-dock-success/15 border border-dock-success/30 text-dock-success text-xs flex items-center gap-2"
+        >
+          <CheckCircle2 class="w-4 h-4 shrink-0" />
+          <span>{{ fileFeedback }}</span>
+        </div>
+
+        <textarea
+          v-model="editingContent"
+          rows="18"
+          spellcheck="false"
+          class="w-full p-3 rounded bg-[#070b14] border border-dock-border focus:border-dock-accent font-mono text-xs text-dock-text outline-none leading-relaxed"
+          placeholder="Conteúdo do arquivo..."
+        ></textarea>
       </div>
 
       <!-- Tabela de Arquivos e Pastas -->
@@ -346,31 +598,52 @@ onMounted(load);
               <th class="py-2 px-2.5">Permissões</th>
               <th class="py-2 px-2.5">Dono</th>
               <th class="py-2 px-2.5">Tamanho</th>
-              <th class="py-2 px-2.5 text-right">Modificado</th>
+              <th class="py-2 px-2.5">Modificado</th>
+              <th class="py-2 px-2.5 text-right">Ações</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-dock-border">
             <tr v-if="loadingFiles">
-              <td colspan="5" class="py-8 text-center text-dock-text-dim">Carregando diretório...</td>
+              <td colspan="6" class="py-8 text-center text-dock-text-dim">Carregando diretório...</td>
             </tr>
             <tr v-else-if="dirItems.length === 0">
-              <td colspan="5" class="py-8 text-center text-dock-text-dim">Diretório vazio ou inacessível.</td>
+              <td colspan="6" class="py-8 text-center text-dock-text-dim">Diretório vazio ou inacessível.</td>
             </tr>
             <tr
               v-for="item in dirItems"
               :key="item.path"
-              @click="openFileOrDir(item)"
-              class="hover:bg-dock-surface/60 cursor-pointer transition-colors"
+              class="hover:bg-dock-surface/60 transition-colors"
             >
-              <td class="py-2 px-2.5 flex items-center gap-2 text-dock-text">
+              <td
+                @click="openFileOrDir(item)"
+                class="py-2 px-2.5 flex items-center gap-2 text-dock-text cursor-pointer"
+              >
                 <Folder v-if="item.is_dir" class="w-3.5 h-3.5 text-dock-accent shrink-0" />
                 <FileCode v-else class="w-3.5 h-3.5 text-dock-text-dim shrink-0" />
-                <span :class="item.is_dir ? 'font-semibold text-dock-accent' : ''">{{ item.name }}</span>
+                <span :class="item.is_dir ? 'font-semibold text-dock-accent' : 'hover:underline'">{{ item.name }}</span>
               </td>
               <td class="py-2 px-2.5 text-dock-text-dim">{{ item.permissions }}</td>
               <td class="py-2 px-2.5 text-dock-text-muted">{{ item.owner }}</td>
               <td class="py-2 px-2.5 text-dock-text-muted">{{ item.size }} B</td>
-              <td class="py-2 px-2.5 text-right text-dock-text-dim">{{ item.modified }}</td>
+              <td class="py-2 px-2.5 text-dock-text-dim">{{ item.modified }}</td>
+              <td class="py-2 px-2.5 text-right whitespace-nowrap">
+                <div class="inline-flex items-center gap-1">
+                  <button
+                    @click.stop="handleDownloadFile(item.path)"
+                    class="p-1 rounded bg-dock-bg hover:bg-dock-surface border border-dock-border text-dock-text-muted hover:text-dock-accent cursor-pointer"
+                    :title="item.is_dir ? 'Baixar pasta (.tar)' : 'Baixar arquivo'"
+                  >
+                    <Download class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    @click.stop="handleDeleteFile(item.path)"
+                    class="p-1 rounded bg-dock-bg hover:bg-dock-error/15 border border-dock-border text-dock-text-muted hover:text-dock-error cursor-pointer"
+                    title="Excluir do contêiner"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -423,7 +696,7 @@ onMounted(load);
           <input
             v-model="execWorkdir"
             type="text"
-            placeholder=" Diretório (opcional, ex: /app)"
+            placeholder="Diretório (opcional, ex: /app)"
             class="sm:w-48 bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-xs text-dock-text placeholder-dock-text-dim outline-none"
           />
           <button
@@ -482,72 +755,152 @@ onMounted(load);
       <MetricsChart :data="memData" :labels="labels" label="Uso de Memória (%)" color="#10b981" :max="100" />
     </div>
 
-    <!-- ABA 4: INSPEÇÃO & AMBIENTE -->
-    <div v-else-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="glass-panel p-4">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-dock-text-muted mb-3 border-b border-dock-border pb-2">
-          Variáveis de Ambiente do Contêiner ({{ container.env?.length || 0 }})
-        </h3>
-        <div class="space-y-1.5 max-h-72 overflow-y-auto font-mono text-xs">
-          <div v-if="!container.env || !container.env.length" class="text-xs text-dock-text-dim">
-            Nenhuma variável configurada.
+    <!-- ABA 4: INSPEÇÃO, AMBIENTE & QUOTAS DE RECURSOS -->
+    <div v-else-if="activeTab === 'overview'" class="space-y-4">
+      <!-- Card de Limites de Recursos (Quotas de CPU & RAM em Tempo Real) -->
+      <div class="glass-panel p-4 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-2.5">
+          <div>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-dock-text flex items-center gap-1.5">
+              <Cpu class="w-4 h-4 text-dock-accent" /> Limites de Recursos do Contêiner (Quotas de CPU & RAM)
+            </h3>
+            <p class="text-[11px] text-dock-text-dim mt-0.5">
+              Aplique travas de memória e processador em tempo real (`docker update`) para evitar que um vazamento derrube o servidor.
+            </p>
           </div>
-          <div
-            v-for="env in container.env"
-            :key="env"
-            class="bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border break-all text-dock-text-muted"
+          <div class="flex flex-wrap gap-1.5 text-[11px] font-mono">
+            <button
+              type="button"
+              @click="quotaMemoryMb = 256; quotaCpuCores = 0.5"
+              class="px-2 py-1 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
+            >
+              Micro (256MB / 0.5 vCPU)
+            </button>
+            <button
+              type="button"
+              @click="quotaMemoryMb = 512; quotaCpuCores = 1.0"
+              class="px-2 py-1 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
+            >
+              Padrão (512MB / 1 vCPU)
+            </button>
+            <button
+              type="button"
+              @click="quotaMemoryMb = 1024; quotaCpuCores = 2.0"
+              class="px-2 py-1 rounded bg-dock-surface hover:bg-dock-panel border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
+            >
+              Performance (1GB / 2 vCPU)
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="quotaFeedback"
+          class="px-3 py-2 rounded bg-dock-success/15 border border-dock-success/30 text-dock-success text-xs flex items-center gap-2"
+        >
+          <CheckCircle2 class="w-4 h-4 shrink-0" />
+          <span>{{ quotaFeedback }}</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end text-xs">
+          <div>
+            <label class="block text-dock-text-muted mb-1">Limite de Memória RAM (MB)</label>
+            <input
+              v-model.number="quotaMemoryMb"
+              type="number"
+              min="32"
+              max="65536"
+              placeholder="Ex: 512 (vazio = sem limite)"
+              class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-3 py-1.5 font-mono text-dock-text outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-dock-text-muted mb-1">Limite de Processador (vCPUs)</label>
+            <input
+              v-model.number="quotaCpuCores"
+              type="number"
+              step="0.25"
+              min="0.1"
+              max="32"
+              placeholder="Ex: 1.0 (vazio = sem limite)"
+              class="w-full bg-dock-bg border border-dock-border focus:border-dock-accent rounded px-3 py-1.5 font-mono text-dock-text outline-none"
+            />
+          </div>
+          <button
+            @click="saveResourceQuotas"
+            :disabled="savingQuotas"
+            class="px-4 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
           >
-            <span class="text-dock-accent">{{ env.split('=')[0] }}</span>=<span class="text-dock-text">{{ env.split('=').slice(1).join('=') }}</span>
-          </div>
+            {{ savingQuotas ? 'Aplicando...' : 'Aplicar Quotas em Tempo Real' }}
+          </button>
         </div>
       </div>
 
-      <div class="glass-panel p-4 space-y-4">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-dock-text-muted border-b border-dock-border pb-2">
-          Rede, Portas & Volumes Montados
-        </h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <div class="text-[11px] font-mono text-dock-text-dim mb-1">Rede Conectada</div>
-            <div class="font-mono text-xs bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text">
-              {{ networkMode }}
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="glass-panel p-4">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-dock-text-muted mb-3 border-b border-dock-border pb-2">
+            Variáveis de Ambiente do Contêiner ({{ container.env?.length || 0 }})
+          </h3>
+          <div class="space-y-1.5 max-h-72 overflow-y-auto font-mono text-xs">
+            <div v-if="!container.env || !container.env.length" class="text-xs text-dock-text-dim">
+              Nenhuma variável configurada.
             </div>
-          </div>
-          <div>
-            <div class="text-[11px] font-mono text-dock-text-dim mb-1">Política de Restart</div>
-            <div class="font-mono text-xs bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text">
-              {{ (container.restart_policy as any)?.Name || 'no' }}
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div class="text-[11px] font-mono text-dock-text-dim mb-1">Mapeamento de Portas</div>
-          <div v-if="!formattedPorts.length" class="text-xs text-dock-text-muted">Nenhuma porta exposta</div>
-          <div v-else class="flex flex-wrap gap-1.5 font-mono text-xs">
-            <span
-              v-for="p in formattedPorts"
-              :key="p"
-              class="bg-dock-surface px-2 py-1 rounded border border-dock-border text-dock-text"
-            >
-              {{ p }}
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <div class="text-[11px] font-mono text-dock-text-dim mb-1">Mounts / Volumes</div>
-          <div v-if="!container.mounts || !container.mounts.length" class="text-xs text-dock-text-muted">
-            Nenhum volume externo montado
-          </div>
-          <div v-else class="space-y-1.5 font-mono text-xs">
             <div
-              v-for="(m, i) in container.mounts"
-              :key="i"
-              class="bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text-muted break-all"
+              v-for="env in container.env"
+              :key="env"
+              class="bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border break-all text-dock-text-muted"
             >
-              <span class="text-dock-text">{{ (m as any).Source || m.source }}</span> →
-              <span class="text-dock-accent">{{ (m as any).Destination || m.destination }}</span>
+              <span class="text-dock-accent">{{ env.split('=')[0] }}</span>=<span class="text-dock-text">{{ env.split('=').slice(1).join('=') }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-panel p-4 space-y-4">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-dock-text-muted border-b border-dock-border pb-2">
+            Rede, Portas & Volumes Montados
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div class="text-[11px] font-mono text-dock-text-dim mb-1">Rede Conectada</div>
+              <div class="font-mono text-xs bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text">
+                {{ networkMode }}
+              </div>
+            </div>
+            <div>
+              <div class="text-[11px] font-mono text-dock-text-dim mb-1">Política de Restart</div>
+              <div class="font-mono text-xs bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text">
+                {{ (container.restart_policy as any)?.Name || 'no' }}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-[11px] font-mono text-dock-text-dim mb-1">Mapeamento de Portas</div>
+            <div v-if="!formattedPorts.length" class="text-xs text-dock-text-muted">Nenhuma porta exposta</div>
+            <div v-else class="flex flex-wrap gap-1.5 font-mono text-xs">
+              <span
+                v-for="p in formattedPorts"
+                :key="p"
+                class="bg-dock-surface px-2 py-1 rounded border border-dock-border text-dock-text"
+              >
+                {{ p }}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-[11px] font-mono text-dock-text-dim mb-1">Mounts / Volumes</div>
+            <div v-if="!container.mounts || !container.mounts.length" class="text-xs text-dock-text-muted">
+              Nenhum volume externo montado
+            </div>
+            <div v-else class="space-y-1.5 font-mono text-xs">
+              <div
+                v-for="(m, i) in container.mounts"
+                :key="i"
+                class="bg-dock-surface px-2.5 py-1.5 rounded border border-dock-border text-dock-text-muted break-all"
+              >
+                <span class="text-dock-text">{{ (m as any).Source || m.source }}</span> →
+                <span class="text-dock-accent">{{ (m as any).Destination || m.destination }}</span>
+              </div>
             </div>
           </div>
         </div>

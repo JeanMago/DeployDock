@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from typing import List, Any, Optional
 from app.services.docker_service import DockerService
@@ -7,7 +7,7 @@ from app.core.waf import security_manager, validate_safe_container_command
 from app.models.user import User
 from app.schemas.container import ContainerSummary, ContainerDetail
 
-router = APIRouter(dependencies=[Depends(require_role("admin", "developer"))])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class ContainerExecRequest(BaseModel):
@@ -24,12 +24,29 @@ class QuickContainerRunRequest(BaseModel):
     restart_policy: str = "unless-stopped"
 
 
+class ContainerFileWriteRequest(BaseModel):
+    path: str
+    content: str
+    restart: bool = False
+
+
+class ContainerFileUploadRequest(BaseModel):
+    dir_path: str = "/"
+    filename: str
+    content_base64: str
+
+
+class ContainerResourceUpdateRequest(BaseModel):
+    memory_limit_mb: Optional[int] = None
+    cpu_limit_cores: Optional[float] = None
+
+
 @router.get("", response_model=List[ContainerSummary])
 async def list_containers(all: bool = True, docker: DockerService = Depends(get_docker_service)):
     return await docker.list_containers(all=all)
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_role("admin", "developer"))])
 async def run_quick_container(
     body: QuickContainerRunRequest,
     request: Request,
@@ -83,25 +100,112 @@ async def get_container(container_id: str, docker: DockerService = Depends(get_d
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/{container_id}/start")
-async def start_container(container_id: str, docker: DockerService = Depends(get_docker_service)):
-    await docker.start_container(container_id)
+
+@router.post("/{container_id}/start", dependencies=[Depends(require_role("admin", "developer"))])
+async def start_container(
+    container_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    res = await docker.start_container(container_id)
+    security_manager.log_event(
+        event_type="container_action",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/containers/{container_id}/start",
+        detail=f"Contêiner '{res.get('name', container_id)}' iniciado",
+        user=current_user.username,
+    )
     return {"message": "Started"}
 
-@router.post("/{container_id}/stop")
-async def stop_container(container_id: str, docker: DockerService = Depends(get_docker_service)):
-    await docker.stop_container(container_id)
+
+@router.post("/{container_id}/stop", dependencies=[Depends(require_role("admin", "developer"))])
+async def stop_container(
+    container_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    res = await docker.stop_container(container_id)
+    security_manager.log_event(
+        event_type="container_action",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/containers/{container_id}/stop",
+        detail=f"Contêiner '{res.get('name', container_id)}' parado",
+        user=current_user.username,
+    )
     return {"message": "Stopped"}
 
-@router.post("/{container_id}/restart")
-async def restart_container(container_id: str, docker: DockerService = Depends(get_docker_service)):
-    await docker.restart_container(container_id)
+
+@router.post("/{container_id}/restart", dependencies=[Depends(require_role("admin", "developer"))])
+async def restart_container(
+    container_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    res = await docker.restart_container(container_id)
+    security_manager.log_event(
+        event_type="container_action",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/containers/{container_id}/restart",
+        detail=f"Contêiner '{res.get('name', container_id)}' reiniciado",
+        user=current_user.username,
+    )
     return {"message": "Restarted"}
 
-@router.delete("/{container_id}")
-async def remove_container(container_id: str, docker: DockerService = Depends(get_docker_service)):
+
+@router.delete("/{container_id}", dependencies=[Depends(require_role("admin", "developer"))])
+async def remove_container(
+    container_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
     await docker.remove_container(container_id)
+    security_manager.log_event(
+        event_type="container_action",
+        severity="medium",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/containers/{container_id}",
+        detail=f"Contêiner '{container_id}' removido",
+        user=current_user.username,
+    )
     return {"message": "Removed"}
+
+
+@router.put("/{container_id}/resources", dependencies=[Depends(require_role("admin", "developer"))])
+async def update_container_resources(
+    container_id: str,
+    body: ContainerResourceUpdateRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        res = await docker.update_container_resources(
+            container_id,
+            memory_limit_mb=body.memory_limit_mb,
+            cpu_limit_cores=body.cpu_limit_cores,
+        )
+        security_manager.log_event(
+            event_type="resource_quota",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/containers/{container_id}/resources",
+            detail=(
+                f"Limites de recursos atualizados em '{res.get('name')}': "
+                f"RAM={body.memory_limit_mb or 'ilimitada'}MB, CPU={body.cpu_limit_cores or 'ilimitada'} vCPU"
+            ),
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/{container_id}/logs")
 async def get_container_logs(
@@ -123,7 +227,8 @@ async def get_container_logs(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/{container_id}/exec")
+
+@router.post("/{container_id}/exec", dependencies=[Depends(require_role("admin", "developer"))])
 async def exec_in_container(
     container_id: str,
     body: ContainerExecRequest,
@@ -172,3 +277,127 @@ async def read_file_in_container(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.put("/{container_id}/files/content", dependencies=[Depends(require_role("admin", "developer"))])
+async def write_file_in_container(
+    container_id: str,
+    body: ContainerFileWriteRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        res = await docker.write_container_file(
+            container_id,
+            file_path=body.path,
+            content=body.content,
+            restart=body.restart,
+        )
+        security_manager.log_event(
+            event_type="file_edit",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/containers/{container_id}/files/content",
+            detail=f"Arquivo '{body.path}' editado no contêiner {container_id} ({res.get('size_bytes')} bytes)",
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{container_id}/files/upload", dependencies=[Depends(require_role("admin", "developer"))])
+async def upload_file_to_container(
+    container_id: str,
+    body: ContainerFileUploadRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        res = await docker.upload_container_file(
+            container_id,
+            dir_path=body.dir_path,
+            filename=body.filename,
+            content_base64=body.content_base64,
+        )
+        security_manager.log_event(
+            event_type="file_upload",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/containers/{container_id}/files/upload",
+            detail=f"Upload do arquivo '{body.filename}' para '{body.dir_path}' no contêiner {container_id}",
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{container_id}/files/download")
+async def download_file_from_container(
+    container_id: str,
+    path: str = Query(...),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        file_bytes, filename = await docker.download_container_file(container_id, file_path=path)
+        return Response(
+            content=file_bytes,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{container_id}/files", dependencies=[Depends(require_role("admin", "developer"))])
+async def delete_file_in_container(
+    container_id: str,
+    request: Request,
+    path: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        res = await docker.delete_container_file(container_id, file_path=path)
+        security_manager.log_event(
+            event_type="file_delete",
+            severity="medium",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/containers/{container_id}/files",
+            detail=f"Arquivo '{path}' excluído no contêiner {container_id}",
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{container_id}/db-dump", dependencies=[Depends(require_role("admin", "developer"))])
+async def export_container_database_dump(
+    container_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    try:
+        dump_bytes, filename, media_type = await docker.export_container_db_dump(container_id)
+        security_manager.log_event(
+            event_type="backup",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/containers/{container_id}/db-dump",
+            detail=f"Dump/Backup '{filename}' ({len(dump_bytes)} bytes) exportado do contêiner {container_id}",
+            user=current_user.username,
+        )
+        return Response(
+            content=dump_bytes,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

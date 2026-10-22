@@ -33,14 +33,19 @@ from app.db.session import init_db, engine
 from app.api.v1.router import api_router
 from app.api.v1.endpoints import ws
 from app.core.waf import SecurityShieldMiddleware
+from app.services.uptime_service import uptime_monitor
 
 setup_logging()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    uptime_monitor.start()
     yield
+    uptime_monitor.stop()
     await engine.dispose()
+
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
@@ -56,11 +61,12 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(ws.router, prefix="/ws", tags=["websocket"])
 
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
+
 @app.get("/")
 async def root():
     return {"app": settings.APP_NAME, "version": "1.0.0"}
-

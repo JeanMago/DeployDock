@@ -1,5 +1,6 @@
 import os
 import shutil
+from urllib.parse import urlparse, urlunparse
 
 # Auto-detect git executable if not in system PATH
 if not shutil.which("git"):
@@ -26,28 +27,66 @@ os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
 import git
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+
+def _inject_git_token(repo_url: str, git_token: Optional[str]) -> str:
+    """Injeta Personal Access Token (PAT) em URLs HTTP/HTTPS para clonar repositórios privados."""
+    if not git_token or not git_token.strip():
+        return repo_url
+    token = git_token.strip()
+    if not repo_url.startswith(("http://", "https://")):
+        return repo_url
+    parsed = urlparse(repo_url)
+    host = parsed.hostname or ""
+    port_part = f":{parsed.port}" if parsed.port else ""
+    netloc = f"oauth2:{token}@{host}{port_part}"
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
 
 class GitService:
-    async def clone_repo(self, repo_url: str, dest_path: str, branch: str = 'main') -> str:
+    async def clone_repo(
+        self,
+        repo_url: str,
+        dest_path: str,
+        branch: str = "main",
+        git_token: Optional[str] = None,
+    ) -> str:
         def _clone():
+            auth_url = _inject_git_token(repo_url, git_token)
             if not os.path.exists(dest_path):
-                repo = git.Repo.clone_from(repo_url, dest_path, branch=branch)
+                repo = git.Repo.clone_from(auth_url, dest_path, branch=branch)
             else:
                 repo = git.Repo(dest_path)
+                if git_token and repo.remotes:
+                    repo.remotes.origin.set_url(auth_url)
                 repo.remotes.origin.fetch()
                 repo.git.checkout(branch)
                 repo.remotes.origin.pull()
             return repo.head.commit.hexsha
+
         return await asyncio.to_thread(_clone)
 
-    async def pull_repo(self, repo_path: str, branch: str = 'main') -> str:
+    async def pull_repo(
+        self,
+        repo_path: str,
+        branch: str = "main",
+        git_token: Optional[str] = None,
+        repo_url: Optional[str] = None,
+    ) -> str:
         def _pull():
             repo = git.Repo(repo_path)
-            repo.remotes.origin.fetch()
-            repo.git.checkout(branch)
-            repo.remotes.origin.pull()
+            if repo.remotes:
+                if git_token and repo_url:
+                    repo.remotes.origin.set_url(_inject_git_token(repo_url, git_token))
+                repo.remotes.origin.fetch()
+                try:
+                    repo.git.checkout(branch)
+                except Exception:
+                    repo.git.checkout("-B", branch, f"origin/{branch}")
+                repo.remotes.origin.pull()
             return repo.head.commit.hexsha
+
         return await asyncio.to_thread(_pull)
 
     async def get_current_commit(self, repo_path: str) -> Dict[str, Any]:
@@ -58,6 +97,7 @@ class GitService:
                 "sha": commit.hexsha,
                 "message": commit.message,
                 "author": commit.author.name,
-                "timestamp": commit.committed_datetime.isoformat()
+                "timestamp": commit.committed_datetime.isoformat(),
             }
+
         return await asyncio.to_thread(_get)

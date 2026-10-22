@@ -1,0 +1,2 @@
+Arquivo de sonda criado em 2026-10-22T03:41:05.756927+00:00
+Este arquivo pode ser lido, editado ou baixado pelo Explorador de Arquivos da plataforma Docker.

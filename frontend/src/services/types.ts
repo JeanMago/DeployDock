@@ -18,6 +18,8 @@ export interface ContainerDetail extends Container {
   networks: Record<string, unknown> | null;
   config: Record<string, unknown> | null;
   restart_policy: Record<string, unknown> | null;
+  memory_limit_mb?: number | null;
+  cpu_limit_cores?: number | null;
 }
 
 export interface ContainerStats {
@@ -25,7 +27,6 @@ export interface ContainerStats {
   memory_percent: number;
   memory_usage_mb: number;
   memory_limit_mb: number;
-  // Bug fix: nomes alinhados com DockerService.get_container_stats()
   network_rx_mb: number;
   network_tx_mb: number;
   timestamp?: string;
@@ -45,6 +46,11 @@ export interface Project {
   public_url: string;
   last_deploy_status?: string;
   container_id?: string | null;
+  has_git_token?: boolean;
+  preview_deployments_enabled?: boolean;
+  memory_limit_mb?: number | null;
+  cpu_limit_cores?: number | null;
+  auto_heal?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -62,8 +68,13 @@ export interface ProjectCreate {
   subdomain?: string | null;
   custom_domain?: string | null;
   container_port?: number | null;
-  template?: 'fastapi' | 'express' | 'static' | 'custom';
+  template?: 'fastapi' | 'express' | 'static' | 'flask' | 'adminer' | 'status_page' | 'custom';
   dockerfile_content?: string;
+  git_token?: string | null;
+  preview_deployments_enabled?: boolean;
+  memory_limit_mb?: number | null;
+  cpu_limit_cores?: number | null;
+  auto_heal?: boolean;
 }
 
 export interface RoutingConfig {
@@ -74,6 +85,17 @@ export interface RoutingConfig {
 }
 
 export type ProjectUpdate = Partial<ProjectCreate>;
+
+export interface ProjectPreview {
+  container_id: string;
+  container_name: string;
+  branch: string;
+  branch_slug: string;
+  status: string;
+  public_host: string;
+  public_url: string;
+  created?: string | null;
+}
 
 export interface Deployment {
   id: string;
@@ -116,8 +138,6 @@ export interface ContainerExecResponse {
   output: string;
 }
 
-
-// Bug fix: campos alinhados com DockerService.get_system_info() e schema SystemInfo do backend
 export interface SystemInfo {
   docker_version: string | null;
   api_version: string | null;
@@ -272,6 +292,13 @@ export interface TokenResponse {
   user: User;
 }
 
+export interface UptimeHistoryPoint {
+  timestamp: string;
+  latency_ms: number;
+  status_code: number;
+  ok: boolean;
+}
+
 export interface ProjectHealthcheck {
   project_id: string;
   name: string;
@@ -279,7 +306,48 @@ export interface ProjectHealthcheck {
   reachable: boolean;
   status_code: number;
   latency_ms: number;
+  avg_latency_ms?: number;
+  uptime_percent?: number;
+  consecutive_failures?: number;
+  auto_heal_enabled?: boolean;
+  auto_heals_count?: number;
+  container_state?: string;
+  last_checked_at?: string;
   error?: string;
+  history?: UptimeHistoryPoint[];
+}
+
+export interface NotificationConfig {
+  enabled: boolean;
+  discord_webhook_url: string;
+  slack_webhook_url: string;
+  telegram_bot_token: string;
+  telegram_chat_id: string;
+  custom_webhook_url: string;
+  notify_on_deploy_success: boolean;
+  notify_on_deploy_failure: boolean;
+  notify_on_waf_block: boolean;
+  notify_on_container_down: boolean;
+  notify_on_high_resource: boolean;
+  cpu_threshold_percent: number;
+  ram_threshold_percent: number;
+}
+
+export interface NotificationHistoryItem {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  severity: string;
+  title: string;
+  message: string;
+  channels: string[];
+  errors: string[];
+}
+
+export interface NotificationOverview {
+  config: NotificationConfig;
+  channels_configured: string[];
+  history: NotificationHistoryItem[];
 }
 
 export interface SecurityConfig {
@@ -327,5 +395,3 @@ export interface SecurityOverview {
   blocked_ips: BlockedIpInfo[];
   audit_logs: SecurityAuditLog[];
 }
-
-

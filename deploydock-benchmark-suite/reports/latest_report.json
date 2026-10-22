@@ -1,0 +1,1162 @@
+{
+  "report_id": "bench-1792642382",
+  "generated_at": "2026-10-22T04:13:02.882986+00:00",
+  "audit_duration_ms": 11138.4,
+  "orchestrator": {
+    "platform_name": "DeployDock PaaS",
+    "confidence": "high",
+    "running_in_container": true,
+    "hostname": "6b11dc127744",
+    "reverse_proxy_detected": false,
+    "forwarded_proto": "http",
+    "forwarded_host": "localhost:8095",
+    "forwarded_for": "direct",
+    "indicators": [
+      "Definido via variável PLATFORM_NAME=DeployDock PaaS",
+      "pids_limit=256 ativo (Assinatura padrão DeployDock)",
+      "security_opt no-new-privileges=true ativo (Hardening DeployDock)"
+    ]
+  },
+  "cgroups": {
+    "cgroup_version": "v2",
+    "memory_quota_active": true,
+    "memory_limit_mb": 1024.0,
+    "memory_current_mb": 48.65,
+    "host_memory_total_mb": 11920.8,
+    "cpu_quota_active": true,
+    "cpu_limit_cores": 4.0,
+    "host_cpu_cores": 12,
+    "pids_quota_active": true,
+    "pids_limit": 256,
+    "pids_current": 7
+  },
+  "network": {
+    "interfaces": [
+      {
+        "interface": "eth0/primary",
+        "ipv4": [
+          "172.17.0.2"
+        ]
+      }
+    ],
+    "nameservers": [
+      "10.255.255.254"
+    ],
+    "docker_embedded_dns": false,
+    "dns_resolution_ok": true,
+    "dns_latency_ms": 0.07,
+    "resolved_localhost": "127.0.0.1"
+  },
+  "environment_storage": {
+    "env_count": 13,
+    "benchmark_env_injected": "deploydock-encrypted-ok",
+    "custom_env_vars_detected": [
+      "BENCHMARK_ENV_INJECTED",
+      "DEPLOYDOCK_API_URL"
+    ],
+    "environment_snapshot": {
+      "BENCHMARK_ENV_INJECTED": "deploydock-encrypted-ok",
+      "DEPLOYDOCK_API_URL": "http://host.docker.internal:8000",
+      "GPG_KEY": "***MASKED (len=40)***",
+      "HOME": "/root",
+      "HOSTNAME": "6b11dc127744",
+      "LANG": "C.UTF-8",
+      "PATH": "/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PLATFORM_NAME": "DeployDock PaaS",
+      "PORT": "8080",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONUNBUFFERED": "1",
+      "PYTHON_SHA256": "bfb74ad39efae27cda510f134ab408e00f9992c56851cfc0b1cdb5646da11599",
+      "PYTHON_VERSION": "3.11.17"
+    },
+    "workspace_dir": "/app/workspace",
+    "workspace_writable": true,
+    "workspace_files": [
+      {
+        "name": "deploydock_probe_marker.txt",
+        "size_bytes": 157,
+        "modified_at": "2026-10-22T03:41:05+00:00"
+      }
+    ],
+    "disk_total_gb": 1006.85,
+    "disk_free_gb": 952.07,
+    "disk_percent": 5.4,
+    "os_release": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "python_version": "3.11.17",
+    "architecture": "x86_64"
+  },
+  "security": {
+    "hardening_score": 100,
+    "no_new_privileges": true,
+    "seccomp_mode": "filter (bpf)",
+    "cap_eff_hex": "00000000a80425fb",
+    "cap_sys_admin_enabled": false,
+    "is_privileged_container": false,
+    "docker_socket_exposed": false,
+    "pids_limit_active": true,
+    "pids_limit": 256,
+    "checks": [
+      {
+        "id": "no_new_privileges",
+        "title": "Bloqueio de Escalação de Privilégio (no-new-privileges)",
+        "passed": true,
+        "value": "NoNewPrivs=1",
+        "weight": 25,
+        "description": "Impede que processos ganhem novos privilégios via binários SUID/SGID (ativado nativamente pelo DeployDock)."
+      },
+      {
+        "id": "pids_limit",
+        "title": "Proteção Anti-Fork-Bomb (Limite de PIDs no Cgroup)",
+        "passed": true,
+        "value": "pids.max=256",
+        "weight": 20,
+        "description": "Limita o número máximo de processos simultâneos no contêiner (DeployDock define pids_limit=256)."
+      },
+      {
+        "id": "docker_socket_isolation",
+        "title": "Isolamento do Docker Socket (/var/run/docker.sock)",
+        "passed": true,
+        "value": "Isolado (Seguro)",
+        "weight": 20,
+        "description": "Garante que o contêiner da aplicação não tenha acesso ao daemon Docker do host."
+      },
+      {
+        "id": "non_privileged_mode",
+        "title": "Restrição de Modo Privilegiado (CAP_SYS_ADMIN bloqueado)",
+        "passed": true,
+        "value": "CapEff=0x00000000a80425fb",
+        "weight": 15,
+        "description": "Verifica se capabilities administrativas críticas do Kernel Linux estão desativadas."
+      },
+      {
+        "id": "seccomp_profile",
+        "title": "Filtro de Syscalls do Kernel (Seccomp BPF)",
+        "passed": true,
+        "value": "filter (bpf)",
+        "weight": 10,
+        "description": "Restringe chamadas de sistema perigosas no nível do Kernel."
+      },
+      {
+        "id": "resource_quotas",
+        "title": "Quotas de Recursos Cgroup (RAM / CPU)",
+        "passed": true,
+        "value": "RAM=1024.0MB, CPU=4.0 cores",
+        "weight": 10,
+        "description": "Protege o servidor contra exaustão de memória (OOM) ou monopólio de CPU por um único contêiner."
+      }
+    ]
+  },
+  "performance": {
+    "intensity_mode": "standard",
+    "composite_performance_score": 92,
+    "peak_cpu_percent_during_stress": 60.4,
+    "peak_memory_mb_during_stress": 120.74,
+    "cpu": {
+      "logical_cores_detected": 12,
+      "workers_spawned": 12,
+      "cpu_ops_per_sec": 2270659,
+      "single_core_ops_per_sec": 2270659,
+      "multi_core_ops_per_sec": 4537436,
+      "multicore_scaling_ratio": 2.0,
+      "primes_up_to_300k_count": 25997,
+      "prime_sieve_ms": 2.34,
+      "floating_point_mflops": 35.7,
+      "compression_throughput_mb_s": 386.6,
+      "elapsed_seconds": 0.968
+    },
+    "memory": {
+      "block_size_mb": 32,
+      "iterations": 4,
+      "total_mb_processed": 256.0,
+      "peak_memory_rss_mb": 120.75,
+      "elapsed_seconds": 0.1776,
+      "memory_throughput_mb_s": 1441.5,
+      "random_access_ops_per_sec": 10116338,
+      "guard": 206
+    },
+    "disk_io": {
+      "test_file_size_mb": 16.0,
+      "write_speed_mb_s": 595.9,
+      "read_speed_mb_s": 8631.4,
+      "random_4k_iops": 182141,
+      "write_elapsed_ms": 26.85,
+      "read_elapsed_ms": 1.85,
+      "iops_elapsed_ms": 8.24
+    },
+    "network_concurrency": {
+      "concurrent_connections": 80,
+      "requests_per_sec": 1666,
+      "p50_latency_ms": 8.39,
+      "p95_latency_ms": 15.24,
+      "p99_latency_ms": 16.1,
+      "total_elapsed_ms": 48.02
+    },
+    "telemetry_timeline": [
+      {
+        "elapsed_ms": 121,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 14.2,
+        "memory_mb": 48.9
+      },
+      {
+        "elapsed_ms": 241,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 14.1,
+        "memory_mb": 48.9
+      },
+      {
+        "elapsed_ms": 362,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 14.7,
+        "memory_mb": 48.9
+      },
+      {
+        "elapsed_ms": 483,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 55.7,
+        "memory_mb": 49.64
+      },
+      {
+        "elapsed_ms": 653,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 51.7,
+        "memory_mb": 49.64
+      },
+      {
+        "elapsed_ms": 775,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 60.4,
+        "memory_mb": 49.64
+      },
+      {
+        "elapsed_ms": 953,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 44.2,
+        "memory_mb": 49.64
+      },
+      {
+        "elapsed_ms": 1080,
+        "phase": "CPU Single & Multi-Core Stress",
+        "cpu_percent": 30.7,
+        "memory_mb": 56.75
+      },
+      {
+        "elapsed_ms": 1224,
+        "phase": "Alocação & Banda de Memória RAM",
+        "cpu_percent": 33.9,
+        "memory_mb": 120.74
+      },
+      {
+        "elapsed_ms": 1350,
+        "phase": "Disco I/O Sequencial & Random 4K IOPS",
+        "cpu_percent": 33.3,
+        "memory_mb": 60.71
+      },
+      {
+        "elapsed_ms": 1470,
+        "phase": "Rede & Concorrência TCP Loopback",
+        "cpu_percent": 29.2,
+        "memory_mb": 60.94
+      }
+    ]
+  },
+  "deploydock_e2e": {
+    "api_reachable": true,
+    "api_url": "http://host.docker.internal:8000",
+    "total_tests": 50,
+    "passed_tests": 50,
+    "failed_tests": 0,
+    "pass_rate_percent": 100.0,
+    "duration_ms": 9666.37,
+    "tests": [
+      {
+        "id": "auth_jwt_login",
+        "category": "Autenticação & RBAC",
+        "feature": "Autenticação OAuth2 / JWT Bearer Token",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 103.9,
+        "evidence": "HTTP 200 OK — Token JWT emitido (211 chars, tipo=bearer)",
+        "endpoint": "POST /api/v1/auth/login"
+      },
+      {
+        "id": "auth_invalid_credentials_guard",
+        "category": "Autenticação & RBAC",
+        "feature": "Rejeição de Credenciais Inválidas & Registro Anti-Brute-Force",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 8.87,
+        "evidence": "HTTP 401 — Nome de usuário ou senha incorretos.",
+        "endpoint": "POST /api/v1/auth/login (invalid)"
+      },
+      {
+        "id": "auth_profile_rbac",
+        "category": "Autenticação & RBAC",
+        "feature": "Validação de Sessão & Identidade JWT (/auth/me)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 6.15,
+        "evidence": "Usuário='admin', Role='admin', Ativo=True",
+        "endpoint": "GET /api/v1/auth/me"
+      },
+      {
+        "id": "auth_users_management",
+        "category": "Autenticação & RBAC",
+        "feature": "Listagem de Contas Multi-Usuário Cadastradas",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 7.43,
+        "evidence": "1 usuário(s) ativo(s) no banco de dados",
+        "endpoint": "GET /api/v1/auth/users"
+      },
+      {
+        "id": "rbac_user_creation_and_roles",
+        "category": "Autenticação & RBAC",
+        "feature": "Criação de Conta com Papel Restrito ('viewer')",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 55.1,
+        "evidence": "Usuário 'viewer_audit_2373' criado com role='viewer' (id=da6294b6)",
+        "endpoint": "POST /api/v1/auth/users"
+      },
+      {
+        "id": "rbac_privilege_enforcement_and_lifecycle",
+        "category": "Autenticação & RBAC",
+        "feature": "Enforcement de Permissão RBAC (Viewer bloqueado com HTTP 403), Troca de Role, Toggle & Exclusão",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 107.47,
+        "evidence": "Viewer bloqueado em rota crítica (HTTP 403) + Role/Toggle/Delete validados",
+        "endpoint": "PATCH /role, PATCH /toggle, DELETE /users/{id}"
+      },
+      {
+        "id": "waf_security_headers",
+        "category": "Segurança & WAF",
+        "feature": "Injeção Automática de Security Headers HTTP (CSP/XFO/Nosniff/Shield)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 1.1,
+        "evidence": "Headers presentes (5/5): x-content-type-options, x-frame-options, x-xss-protection, referrer-policy, x-deploydock-shield",
+        "endpoint": "Middleware HTTP Security Shield"
+      },
+      {
+        "id": "waf_block_sqli",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de SQL Injection Clássico (UNION SELECT)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 3.06,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de SQL Injection detectado.",
+        "endpoint": "GET /api/v1/projects?search=UNION SELECT..."
+      },
+      {
+        "id": "waf_block_sqli_blind",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de Blind / Time-Based SQL Injection (sleep / tautology)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 22.49,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de SQL Injection detectado.",
+        "endpoint": "GET /api/v1/projects?id=' OR '1'='1"
+      },
+      {
+        "id": "waf_block_xss",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de Cross-Site Scripting Refletido (<script>)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 23.02,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Cross-Site Scripting (XSS) detectado.",
+        "endpoint": "GET /api/v1/projects?filter=<script>..."
+      },
+      {
+        "id": "waf_block_xss_event",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de XSS via Event Handler (onerror= / onload=)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 21.02,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Cross-Site Scripting (XSS) detectado.",
+        "endpoint": "GET /api/v1/projects?avatar=onerror=..."
+      },
+      {
+        "id": "waf_block_traversal",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de Path Traversal / LFI Unix (../../etc/passwd)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 21.15,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Path Traversal detectado.",
+        "endpoint": "GET /api/v1/containers?path=../../etc/passwd"
+      },
+      {
+        "id": "waf_block_traversal_proc",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Proteção contra Leitura de /proc/self e /etc/shadow",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 21.13,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Path Traversal detectado.",
+        "endpoint": "GET /api/v1/containers?inspect=/proc/self"
+      },
+      {
+        "id": "waf_block_rce",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de Remote Code Execution (JNDI / Log4Shell Probe)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 20.9,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Remote Code Execution / Shell Probe detectado.",
+        "endpoint": "GET /api/v1/projects?probe=${jndi:...}"
+      },
+      {
+        "id": "waf_block_reverse_shell",
+        "category": "Segurança & WAF",
+        "feature": "WAF — Bloqueio de Injeção de Reverse Shell (/bin/bash -i / netcat)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 20.25,
+        "evidence": "HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Remote Code Execution / Shell Probe detectado.",
+        "endpoint": "GET /api/v1/containers?cmd=/bin/bash -i..."
+      },
+      {
+        "id": "waf_ssrf_cloud_metadata_guard",
+        "category": "Segurança & WAF",
+        "feature": "Proteção Anti-SSRF contra Cloud Metadata (169.254.169.254 / Loopback)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 49.39,
+        "evidence": "HTTP 400 — Segurança Anti-SSRF: O host '169.254.169.254' não é permitido para clonagem Git.",
+        "endpoint": "POST /api/v1/projects (repo_url=169.254.169.254)"
+      },
+      {
+        "id": "waf_controlled_attack_simulator",
+        "category": "Segurança & WAF",
+        "feature": "Motor de Simulação de Defesa Ativa WAF/IPS (/security/simulate-attack)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 31.13,
+        "evidence": "Status='blocked_by_shield', Ataque='SQL Injection'",
+        "endpoint": "POST /api/v1/security/simulate-attack"
+      },
+      {
+        "id": "waf_audit_and_ip_ban",
+        "category": "Segurança & WAF",
+        "feature": "Auditoria em Tempo Real, Configuração WAF & Banimento Dinâmico de IP",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 68.87,
+        "evidence": "Score Segurança=100%, Inspecionadas=414, Ataques Bloqueados=59",
+        "endpoint": "GET /security/overview + PUT /config + POST /block"
+      },
+      {
+        "id": "system_host_telemetry",
+        "category": "Observabilidade & Host",
+        "feature": "Telemetria de Hardware do Servidor (CPU, RAM, SO, Docker Engine)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 48.44,
+        "evidence": "SO='Ubuntu 26.04.1 LTS' (x86_64), CPUs=12 cores, RAM=11920.79 MB, Docker=29.1.3 (API 1.52)",
+        "endpoint": "GET /api/v1/system/info"
+      },
+      {
+        "id": "system_docker_resources",
+        "category": "Observabilidade & Host",
+        "feature": "Visão Consolidada de Recursos Docker (/system/resources)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 4366.0,
+        "evidence": "Imagens=32, Volumes=2, Redes=5",
+        "endpoint": "GET /api/v1/system/resources"
+      },
+      {
+        "id": "system_images_catalog",
+        "category": "Observabilidade & Host",
+        "feature": "Inspeção de Catálogo de Imagens Docker & Tamanhos em Disco",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 417.36,
+        "evidence": "9 imagens Docker catalogadas no host",
+        "endpoint": "GET /api/v1/system/images"
+      },
+      {
+        "id": "system_volumes_catalog",
+        "category": "Observabilidade & Host",
+        "feature": "Inspeção de Volumes Persistentes Docker & Mountpoints",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 14.63,
+        "evidence": "2 volumes persistentes ativos",
+        "endpoint": "GET /api/v1/system/volumes"
+      },
+      {
+        "id": "system_networks_catalog",
+        "category": "Observabilidade & Host",
+        "feature": "Inspeção de Redes Bridge/Overlay & Sub-redes Docker",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 13.61,
+        "evidence": "5 redes Docker listadas",
+        "endpoint": "GET /api/v1/system/networks"
+      },
+      {
+        "id": "system_prune_cleanup",
+        "category": "Observabilidade & Host",
+        "feature": "Execução de System Prune (Limpeza Automatizada de Recursos Órfãos)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 13.8,
+        "evidence": "System Prune executado com sucesso (target=networks)",
+        "endpoint": "POST /api/v1/system/prune?target=networks"
+      },
+      {
+        "id": "system_production_check",
+        "category": "Observabilidade & Host",
+        "feature": "Checklist Automatizado de Prontidão para Produção (Traefik, DB, TLS, Secret)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 323.75,
+        "evidence": "Score de Prontidão=67% (4/6 itens aprovados)",
+        "endpoint": "GET /api/v1/system/production-check"
+      },
+      {
+        "id": "containers_list_and_status",
+        "category": "Gestão de Contêineres",
+        "feature": "Listagem de Contêineres Ativos/Inativos com Mapeamento de Portas",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 321.76,
+        "evidence": "4 contêiner(es) encontrado(s) (4 em execução)",
+        "endpoint": "GET /api/v1/containers?all=true"
+      },
+      {
+        "id": "container_inspect_detail",
+        "category": "Gestão de Contêineres",
+        "feature": "Inspeção Profunda de Contêiner (Mounts, Rede, Labels, Limites)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 72.46,
+        "evidence": "Contêiner 'deploydock_simulador' (e4f5b8a20223) inspecionado com sucesso",
+        "endpoint": "GET /api/v1/containers/e4f5b8a20223"
+      },
+      {
+        "id": "container_live_cgroup_quota_update",
+        "category": "Gestão de Contêineres",
+        "feature": "Reconfiguração Dinâmica Ao Vivo de Quotas Cgroup (RAM=512MB, CPU=1.0 vCPU)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 130.06,
+        "evidence": "Quotas aplicadas em quente no contêiner 'deploydock_simulador' sem downtime",
+        "endpoint": "PUT /api/v1/containers/e4f5b8a20223/resources"
+      },
+      {
+        "id": "container_advanced_logs",
+        "category": "Gestão de Contêineres",
+        "feature": "Coletor Avançado de Logs (Tail & Timestamps ISO)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 16.66,
+        "evidence": "Streaming/buffer de logs coletado de 'deploydock_simulador'",
+        "endpoint": "GET /api/v1/containers/e4f5b8a20223/logs"
+      },
+      {
+        "id": "container_logs_search_and_since",
+        "category": "Gestão de Contêineres",
+        "feature": "Filtro de Logs por Termo de Busca (search=INFO) & Janela Temporal (since_seconds)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 17.2,
+        "evidence": "Busca textual e filtro temporal executados com sucesso (HTTP 200)",
+        "endpoint": "GET /api/v1/containers/e4f5b8a20223/logs?search=INFO"
+      },
+      {
+        "id": "container_terminal_exec",
+        "category": "Gestão de Contêineres",
+        "feature": "Execução de Comandos no Terminal Web do Contêiner",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 57.44,
+        "evidence": "ExitCode=0 — Saída: 'DEPLOYDOCK_TERMINAL_OK | Linux 6.18.54.1-microsoft-standard-WSL2 x86_64'",
+        "endpoint": "POST /api/v1/containers/e4f5b8a20223/exec"
+      },
+      {
+        "id": "container_terminal_workdir",
+        "category": "Gestão de Contêineres",
+        "feature": "Execução de Comando com Workdir Isolado (/tmp)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 51.03,
+        "evidence": "Workdir verificado: pwd='/tmp'",
+        "endpoint": "POST /api/v1/containers/e4f5b8a20223/exec (workdir=/tmp)"
+      },
+      {
+        "id": "container_terminal_security_guard",
+        "category": "Segurança & WAF",
+        "feature": "Proteção do Terminal contra Escape via Docker Socket (/var/run/docker.sock)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 32.53,
+        "evidence": "HTTP 403 — Bloqueado pela política de segurança: Acesso direto ao socket Docker bloqueado",
+        "endpoint": "POST /api/v1/containers/e4f5b8a20223/exec (docker.sock)"
+      },
+      {
+        "id": "container_terminal_forkbomb_guard",
+        "category": "Segurança & WAF",
+        "feature": "Proteção do Terminal contra Fork Bomb (:(){ :|:& };:)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 35.03,
+        "evidence": "HTTP 403 — Bloqueado pela política de segurança: Fork Bomb detectada",
+        "endpoint": "POST /api/v1/containers/e4f5b8a20223/exec (forkbomb)"
+      },
+      {
+        "id": "container_terminal_rm_root_guard",
+        "category": "Segurança & WAF",
+        "feature": "Proteção do Terminal contra Destruição de Sistema de Arquivos (rm -rf /)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 33.4,
+        "evidence": "HTTP 403 — Bloqueado pela política de segurança: Destruição da raiz do sistema bloqueada",
+        "endpoint": "POST /api/v1/containers/e4f5b8a20223/exec (rm -rf /)"
+      },
+      {
+        "id": "file_explorer_list",
+        "category": "Explorador de Arquivos",
+        "feature": "Listagem de Diretórios Internos do Contêiner (/tmp)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 51.74,
+        "evidence": "Diretório '/tmp' listado em 'deploydock_simulador' (0 itens)",
+        "endpoint": "GET /api/v1/containers/e4f5b8a20223/files?path=/tmp"
+      },
+      {
+        "id": "file_explorer_write_read",
+        "category": "Explorador de Arquivos",
+        "feature": "Edição e Leitura de Arquivos In-Place dentro do Contêiner",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 72.01,
+        "evidence": "Arquivo '/tmp/deploydock_e2e_probe.txt' gravado e verificado (64 bytes)",
+        "endpoint": "PUT & GET /api/v1/containers/e4f5b8a20223/files/content"
+      },
+      {
+        "id": "file_explorer_upload_download_delete",
+        "category": "Explorador de Arquivos",
+        "feature": "Upload Base64, Download Binário Íntegro e Exclusão de Arquivos",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 143.84,
+        "evidence": "Ciclo completo Upload → Download (33 bytes verificados) → Delete executado em /tmp",
+        "endpoint": "POST /upload, GET /download, DELETE /files"
+      },
+      {
+        "id": "container_database_dump_export",
+        "category": "Backups & Persistência",
+        "feature": "Exportação de Dump/Snapshot de Banco de Dados em 1 Clique (/db-dump)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 447.85,
+        "evidence": "Dump exportado do contêiner d6aa5c5ed62b (12082 bytes gerados)",
+        "endpoint": "GET /api/v1/containers/d6aa5c5ed62b/db-dump"
+      },
+      {
+        "id": "projects_traefik_routing_config",
+        "category": "Projetos & GitOps",
+        "feature": "Configuração de Roteamento Dinâmico Traefik & Subdomínios Automáticos",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 5.57,
+        "evidence": "Base Domain='localhost', Scheme='http', TLS=False",
+        "endpoint": "GET /api/v1/projects/routing-config"
+      },
+      {
+        "id": "projects_create_and_quotas",
+        "category": "Projetos & GitOps",
+        "feature": "Criação de Projeto GitOps com Quotas (RAM=256MB, CPU=0.5 vCPU) & Auto-Heal",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 360.78,
+        "evidence": "Projeto 'audit-probe-2380' criado (URL=http://audit-probe-2380.localhost, Template=FastAPI)",
+        "endpoint": "POST /api/v1/projects"
+      },
+      {
+        "id": "projects_update_and_subdomain_collision_guard",
+        "category": "Projetos & GitOps",
+        "feature": "Atualização de Projeto (PATCH) & Bloqueio de Colisão de Subdomínio (HTTP 409)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 29.34,
+        "evidence": "PATCH Quotas=384MB/0.75vCPU (HTTP 200) | Colisão de subdomínio 'audit-probe-2380' bloqueada (HTTP 409)",
+        "endpoint": "PATCH /projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92 + POST (409 conflict)"
+      },
+      {
+        "id": "projects_env_fernet_encryption",
+        "category": "Projetos & GitOps",
+        "feature": "Cofre de Variáveis .env com Criptografia Simétrica Fernet (AES-128) & CRUD",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 35.61,
+        "evidence": "2 variáveis criptografadas com Fernet AES-128, descriptografadas em leitura e excluídas",
+        "endpoint": "POST, GET & DELETE /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/env"
+      },
+      {
+        "id": "projects_preview_deployments",
+        "category": "Projetos & GitOps",
+        "feature": "Suporte a Ambientes de Preview Isolados por Branch / Pull Request",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 330.8,
+        "evidence": "Endpoint de Preview Environments operacional (HTTP 200)",
+        "endpoint": "GET /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/previews"
+      },
+      {
+        "id": "projects_active_healthcheck_probe",
+        "category": "Projetos & GitOps",
+        "feature": "Sonda de Conectividade HTTP & Latência Individual por Projeto",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 43.11,
+        "evidence": "Verificação individual de saúde executada (status='None')",
+        "endpoint": "GET /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/healthcheck"
+      },
+      {
+        "id": "webhooks_github_hmac_sha256",
+        "category": "Projetos & GitOps",
+        "feature": "Validação Criptográfica de Webhooks GitHub (HMAC-SHA256)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 32.56,
+        "evidence": "Assinatura falsa rejeitada (HTTP 401) e assinatura HMAC-SHA256 válida aceita (HTTP 202 - pong)",
+        "endpoint": "POST /api/v1/webhooks/github"
+      },
+      {
+        "id": "deployments_timeline_history",
+        "category": "Projetos & GitOps",
+        "feature": "Linha do Tempo Global de Deployments & Auditoria de Commits",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 9.23,
+        "evidence": "Histórico de deployments consultado (2 registros)",
+        "endpoint": "GET /api/v1/deployments"
+      },
+      {
+        "id": "projects_uptime_and_autoheal",
+        "category": "Observabilidade & Host",
+        "feature": "Monitoramento Contínuo de Uptime, Latência HTTP & Auto-Healing",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 5.56,
+        "evidence": "Projetos monitorados=4, Auto-Heals acumulados=0",
+        "endpoint": "GET /api/v1/projects/uptime/overview"
+      },
+      {
+        "id": "volumes_backup_restore_targz",
+        "category": "Backups & Persistência",
+        "feature": "Backup & Restore de Volumes Docker em 1 Clique (.tar.gz)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 1198.99,
+        "evidence": "Volume 'deploydock_benchmark_temp_vol' restaurado e exportado como GZIP válido (215 bytes)",
+        "endpoint": "POST /restore & GET /backup (/api/v1/system/volumes)"
+      },
+      {
+        "id": "system_multichannel_notifications",
+        "category": "Observabilidade & Host",
+        "feature": "Motor de Notificações Multicanal (Discord, Slack, Telegram, Webhook)",
+        "passed": true,
+        "status": "PASSED",
+        "latency_ms": 26.4,
+        "evidence": "Alerta registrado e despachado (Canais: painel_interno)",
+        "endpoint": "POST /api/v1/system/notifications/test"
+      }
+    ]
+  },
+  "current_platform_snapshot": {
+    "platform_id": "current_live_run",
+    "platform_name": "DeployDock PaaS (Execução Ao Vivo)",
+    "type": "PaaS & Container Security Manager",
+    "is_reference": false,
+    "timestamp": "2026-10-22T04:13:02.882966+00:00",
+    "idle_ram_mb": 48.6,
+    "radar_scores": {
+      "security_waf": 99,
+      "container_hardening": 100,
+      "gitops_deploy": 97,
+      "observability": 96,
+      "files_and_backups": 99,
+      "efficiency": 92
+    },
+    "overall_score": 98,
+    "feature_score": 100,
+    "features": {
+      "waf_integrated": true,
+      "brute_force_rate_limit": true,
+      "container_hardening_default": true,
+      "rbac_roles": true,
+      "fernet_env_encryption": true,
+      "gitops_auto_dockerfile": true,
+      "preview_deployments": true,
+      "auto_rollback": true,
+      "traefik_ssl_routing": true,
+      "container_file_explorer": true,
+      "web_terminal_guarded": true,
+      "live_cgroup_quotas": true,
+      "advanced_log_viewer": true,
+      "uptime_and_autoheal": true,
+      "volume_targz_backup": true,
+      "multichannel_alerts": true,
+      "low_memory_footprint": true
+    },
+    "benchmark": {
+      "cpu_ops_per_sec": 2270659,
+      "multi_core_ops_per_sec": 4537436,
+      "floating_point_mflops": 35.7,
+      "memory_throughput_mb_s": 1441.5,
+      "disk_write_mb_s": 595.9,
+      "disk_read_mb_s": 8631.4,
+      "random_4k_iops": 182141,
+      "network_rps": 1666
+    }
+  },
+  "feature_catalog": [
+    {
+      "id": "waf_integrated",
+      "category": "Segurança & WAF",
+      "name": "WAF Integrado (SQLi, Blind SQLi, XSS, Path Traversal, RCE)",
+      "weight": "8"
+    },
+    {
+      "id": "brute_force_rate_limit",
+      "category": "Segurança & WAF",
+      "name": "Anti-Brute-Force, Anti-SSRF & Rate Limiting Nativo",
+      "weight": "5"
+    },
+    {
+      "id": "container_hardening_default",
+      "category": "Hardening de Contêiner",
+      "name": "Hardening Padrão (no-new-privileges + pids_limit=256)",
+      "weight": "7"
+    },
+    {
+      "id": "rbac_roles",
+      "category": "Segurança & WAF",
+      "name": "Controle de Acesso RBAC (Admin, Developer, Viewer)",
+      "weight": "5"
+    },
+    {
+      "id": "fernet_env_encryption",
+      "category": "Segurança & WAF",
+      "name": "Criptografia de Variáveis .env em Repouso (AES-128 Fernet)",
+      "weight": "6"
+    },
+    {
+      "id": "gitops_auto_dockerfile",
+      "category": "GitOps & Deploy",
+      "name": "GitOps Zero-Config (Auto-Dockerfile Node/Python/Go/HTML)",
+      "weight": "7"
+    },
+    {
+      "id": "preview_deployments",
+      "category": "GitOps & Deploy",
+      "name": "Preview Deployments Isolados por Branch / Pull Request",
+      "weight": "6"
+    },
+    {
+      "id": "auto_rollback",
+      "category": "GitOps & Deploy",
+      "name": "Health Check com Rollback Automático + Manual 1-Clique",
+      "weight": "7"
+    },
+    {
+      "id": "traefik_ssl_routing",
+      "category": "GitOps & Deploy",
+      "name": "Roteamento Automático Traefik + Let's Encrypt HTTPS",
+      "weight": "6"
+    },
+    {
+      "id": "container_file_explorer",
+      "category": "Contêineres & Arquivos",
+      "name": "Explorador de Arquivos Interno (Ver, Editar, Upload, Download)",
+      "weight": "7"
+    },
+    {
+      "id": "web_terminal_guarded",
+      "category": "Contêineres & Arquivos",
+      "name": "Terminal Web Interativo com Filtro Anti-Escape/ForkBomb",
+      "weight": "6"
+    },
+    {
+      "id": "live_cgroup_quotas",
+      "category": "Contêineres & Arquivos",
+      "name": "Quotas de CPU (vCPU) e RAM Dinâmicas sem Recriar Imagem",
+      "weight": "5"
+    },
+    {
+      "id": "advanced_log_viewer",
+      "category": "Observabilidade",
+      "name": "Streaming de Logs WebSocket com Filtro de Severidade/Busca",
+      "weight": "5"
+    },
+    {
+      "id": "uptime_and_autoheal",
+      "category": "Observabilidade",
+      "name": "Monitor de Uptime HTTP, Latência & Auto-Healing Nativo",
+      "weight": "6"
+    },
+    {
+      "id": "volume_targz_backup",
+      "category": "Backups & Persistência",
+      "name": "Backup & Restore de Volumes (.tar.gz) + DB Dump 1-Clique",
+      "weight": "7"
+    },
+    {
+      "id": "multichannel_alerts",
+      "category": "Observabilidade",
+      "name": "Notificações Multicanal (Discord, Slack, Telegram, Webhook)",
+      "weight": "4"
+    },
+    {
+      "id": "low_memory_footprint",
+      "category": "Eficiência & UX",
+      "name": "Baixo Consumo de RAM da Plataforma (< 250 MB em Idle)",
+      "weight": "3"
+    }
+  ],
+  "comparison_platforms": [
+    {
+      "platform_id": "current_live_run",
+      "platform_name": "DeployDock PaaS (Execução Ao Vivo)",
+      "type": "PaaS & Container Security Manager",
+      "is_reference": false,
+      "timestamp": "2026-10-22T04:13:02.882966+00:00",
+      "idle_ram_mb": 48.6,
+      "radar_scores": {
+        "security_waf": 99,
+        "container_hardening": 100,
+        "gitops_deploy": 97,
+        "observability": 96,
+        "files_and_backups": 99,
+        "efficiency": 92
+      },
+      "overall_score": 98,
+      "feature_score": 100,
+      "features": {
+        "waf_integrated": true,
+        "brute_force_rate_limit": true,
+        "container_hardening_default": true,
+        "rbac_roles": true,
+        "fernet_env_encryption": true,
+        "gitops_auto_dockerfile": true,
+        "preview_deployments": true,
+        "auto_rollback": true,
+        "traefik_ssl_routing": true,
+        "container_file_explorer": true,
+        "web_terminal_guarded": true,
+        "live_cgroup_quotas": true,
+        "advanced_log_viewer": true,
+        "uptime_and_autoheal": true,
+        "volume_targz_backup": true,
+        "multichannel_alerts": true,
+        "low_memory_footprint": true
+      },
+      "benchmark": {
+        "cpu_ops_per_sec": 2270659,
+        "multi_core_ops_per_sec": 4537436,
+        "floating_point_mflops": 35.7,
+        "memory_throughput_mb_s": 1441.5,
+        "disk_write_mb_s": 595.9,
+        "disk_read_mb_s": 8631.4,
+        "random_4k_iops": 182141,
+        "network_rps": 1666
+      }
+    },
+    {
+      "platform_id": "portainer_ce",
+      "platform_name": "Portainer CE 2.21",
+      "type": "Gerenciador de Contêineres",
+      "is_reference": true,
+      "idle_ram_mb": 145,
+      "radar_scores": {
+        "security_waf": 35,
+        "container_hardening": 45,
+        "gitops_deploy": 40,
+        "observability": 72,
+        "files_and_backups": 55,
+        "efficiency": 92
+      },
+      "overall_score": 56,
+      "features": {
+        "waf_integrated": false,
+        "brute_force_rate_limit": true,
+        "container_hardening_default": false,
+        "rbac_roles": true,
+        "fernet_env_encryption": false,
+        "gitops_auto_dockerfile": false,
+        "preview_deployments": false,
+        "auto_rollback": false,
+        "traefik_ssl_routing": false,
+        "container_file_explorer": false,
+        "web_terminal_guarded": false,
+        "live_cgroup_quotas": true,
+        "advanced_log_viewer": true,
+        "uptime_and_autoheal": false,
+        "volume_targz_backup": false,
+        "multichannel_alerts": false,
+        "low_memory_footprint": true
+      },
+      "benchmark": {
+        "cpu_ops_per_sec": 385000,
+        "multi_core_ops_per_sec": 1920000,
+        "floating_point_mflops": 410.0,
+        "memory_throughput_mb_s": 2150.0,
+        "disk_write_mb_s": 240.0,
+        "disk_read_mb_s": 410.0,
+        "random_4k_iops": 18500,
+        "network_rps": 3200
+      }
+    },
+    {
+      "platform_id": "coolify_v4",
+      "platform_name": "Coolify v4",
+      "type": "PaaS Self-Hosted",
+      "is_reference": true,
+      "idle_ram_mb": 680,
+      "radar_scores": {
+        "security_waf": 45,
+        "container_hardening": 55,
+        "gitops_deploy": 92,
+        "observability": 78,
+        "files_and_backups": 65,
+        "efficiency": 58
+      },
+      "overall_score": 71,
+      "features": {
+        "waf_integrated": false,
+        "brute_force_rate_limit": true,
+        "container_hardening_default": false,
+        "rbac_roles": true,
+        "fernet_env_encryption": true,
+        "gitops_auto_dockerfile": true,
+        "preview_deployments": true,
+        "auto_rollback": true,
+        "traefik_ssl_routing": true,
+        "container_file_explorer": false,
+        "web_terminal_guarded": false,
+        "live_cgroup_quotas": true,
+        "advanced_log_viewer": true,
+        "uptime_and_autoheal": false,
+        "volume_targz_backup": true,
+        "multichannel_alerts": true,
+        "low_memory_footprint": false
+      },
+      "benchmark": {
+        "cpu_ops_per_sec": 362000,
+        "multi_core_ops_per_sec": 1780000,
+        "floating_point_mflops": 390.0,
+        "memory_throughput_mb_s": 2090.0,
+        "disk_write_mb_s": 225.0,
+        "disk_read_mb_s": 395.0,
+        "random_4k_iops": 17200,
+        "network_rps": 2950
+      }
+    },
+    {
+      "platform_id": "caprover",
+      "platform_name": "CapRover 1.13",
+      "type": "PaaS Docker Swarm",
+      "is_reference": true,
+      "idle_ram_mb": 310,
+      "radar_scores": {
+        "security_waf": 30,
+        "container_hardening": 40,
+        "gitops_deploy": 78,
+        "observability": 60,
+        "files_and_backups": 35,
+        "efficiency": 80
+      },
+      "overall_score": 54,
+      "features": {
+        "waf_integrated": false,
+        "brute_force_rate_limit": true,
+        "container_hardening_default": false,
+        "rbac_roles": false,
+        "fernet_env_encryption": false,
+        "gitops_auto_dockerfile": false,
+        "preview_deployments": false,
+        "auto_rollback": true,
+        "traefik_ssl_routing": true,
+        "container_file_explorer": false,
+        "web_terminal_guarded": false,
+        "live_cgroup_quotas": true,
+        "advanced_log_viewer": true,
+        "uptime_and_autoheal": false,
+        "volume_targz_backup": false,
+        "multichannel_alerts": true,
+        "low_memory_footprint": false
+      },
+      "benchmark": {
+        "cpu_ops_per_sec": 374000,
+        "multi_core_ops_per_sec": 1840000,
+        "floating_point_mflops": 402.0,
+        "memory_throughput_mb_s": 2110.0,
+        "disk_write_mb_s": 230.0,
+        "disk_read_mb_s": 402.0,
+        "random_4k_iops": 17900,
+        "network_rps": 3050
+      }
+    },
+    {
+      "platform_id": "dokploy",
+      "platform_name": "Dokploy v0.10",
+      "type": "PaaS Self-Hosted",
+      "is_reference": true,
+      "idle_ram_mb": 420,
+      "radar_scores": {
+        "security_waf": 40,
+        "container_hardening": 50,
+        "gitops_deploy": 86,
+        "observability": 74,
+        "files_and_backups": 58,
+        "efficiency": 72
+      },
+      "overall_score": 66,
+      "features": {
+        "waf_integrated": false,
+        "brute_force_rate_limit": true,
+        "container_hardening_default": false,
+        "rbac_roles": true,
+        "fernet_env_encryption": false,
+        "gitops_auto_dockerfile": true,
+        "preview_deployments": true,
+        "auto_rollback": false,
+        "traefik_ssl_routing": true,
+        "container_file_explorer": false,
+        "web_terminal_guarded": false,
+        "live_cgroup_quotas": true,
+        "advanced_log_viewer": true,
+        "uptime_and_autoheal": false,
+        "volume_targz_backup": true,
+        "multichannel_alerts": true,
+        "low_memory_footprint": false
+      },
+      "benchmark": {
+        "cpu_ops_per_sec": 379000,
+        "multi_core_ops_per_sec": 1890000,
+        "floating_point_mflops": 406.0,
+        "memory_throughput_mb_s": 2135.0,
+        "disk_write_mb_s": 235.0,
+        "disk_read_mb_s": 408.0,
+        "random_4k_iops": 18200,
+        "network_rps": 3120
+      }
+    }
+  ],
+  "chaos_state": {
+    "healthy": true,
+    "simulated_status_code": 200,
+    "artificial_delay_ms": 0,
+    "logs_emitted_count": 0
+  },
+  "markdown_document": "# 📄 LAUDO TÉCNICO DE AUDITORIA E2E, SEGURANÇA E BENCHMARK COMPARATIVO\n\n**Plataforma Auditada:** `DeployDock PaaS (Execução Ao Vivo)`  \n**ID do Relatório:** `bench-1792642382`  \n**Data/Hora de Emissão (UTC):** `2026-10-22T04:13:02.882986+00:00`  \n**Tempo Total de Auditoria & Stress Test:** `11138.4 ms`  \n**Hash de Integridade (SHA-256):** `e6692dcadcea9f777d6be3f4b6ccb95e563989b93095a293fd73bfe298893363`\n\n---\n\n## 1. Resumo Executivo e Índices Globais\n\n| Indicador Principal | Pontuação / Resultado | Classificação Técnica |\n| :--- | :---: | :--- |\n| **Score Global Ponderado da Plataforma** | **98/100** | Excelência Operacional |\n| **Cobertura de Funcionalidades PaaS & GitOps** | **100/100** | 17/17 Requisitos Atendidos |\n| **Score de Hardening & Isolamento do Contêiner** | **100/100** | Conformidade Máxima Cgroup/Kernel |\n| **Taxa de Aprovação nos Testes E2E da API** | **50/50 (100.0%)** | 100% dos Sub-sistemas Verificados |\n| **Índice Composto de Performance de Máquina** | **92/100** | Modo de Estresse: `STANDARD` |\n\n---\n\n## 2. Especificações do Ambiente, Kernel e Isolamento Cgroups\n\n- **Sistema Operacional / Kernel:** `Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.41` (`x86_64`)\n- **Runtime da Sonda:** Python `3.11.17` | Contêiner: `6b11dc127744`\n- **Versão de Cgroup:** `Cgroup v2`\n- **Quota de Memória RAM do Contêiner:** `1024.0 MB (Quota Ativa)`\n- **Quota de CPU (vCPU) do Contêiner:** `4.0 vCPUs (Quota Ativa)`\n- **Limite de Processos (`pids.max`):** `256` (Processos ativos: `7`)\n- **Espaço em Disco (`/app/workspace`):** `952.07 GB livres` de `1006.85 GB` (`5.4%` em uso)\n\n---\n\n## 3. Resultados do Stress Test Intensivo de Máquina (CPU, RAM, Disco I/O e Rede)\n\n| Subsistema Avaliado | Métrica Técnica | Valor Obtido | Unidade |\n| :--- | :--- | :---: | :---: |\n| **CPU Single-Core** | Hashing SHA-512 + PBKDF2-HMAC-SHA256 | **2,270,659** | ops/s |\n| **CPU Multi-Core (12 threads)** | Throughput Criptográfico Paralelo | **4,537,436** | ops/s |\n| **Escalonamento SMP** | Ganho Multi-Core vs Single-Core | **2.0x** | razão |\n| **CPU Matemática Inteira** | Crivo de Erastótenes (Primos até 300.000) | **2.34** | ms |\n| **CPU Ponto Flutuante** | Multiplicação Matricial Densa (90x90) | **35.7** | MFLOPS |\n| **CPU Compressão** | Throughput Zlib (Compress + Decompress) | **386.6** | MB/s |\n| **Memória RAM Sequencial** | Alocação, Preenchimento e Cópia (256.0 MB) | **1441.5** | MB/s |\n| **Memória RAM Aleatória** | Operações de Acesso Randômico em Buffer | **10,116,338** | ops/s |\n| **Pico de Uso de RAM** | Consumo Máximo Registrado no Estresse | **120.74** | MB |\n| **Disco I/O Escrita** | Escrita Sequencial Sincronizada (`fsync`) | **595.9** | MB/s |\n| **Disco I/O Leitura** | Leitura Sequencial de Blocos | **8631.4** | MB/s |\n| **Disco Random 4K IOPS** | Operações de Leitura/Escrita Aleatória 4KB | **182,141** | IOPS |\n| **Concorrência de Rede** | Requisições TCP/HTTP Loopback Simultâneas | **1,666** | req/s |\n| **Latência de Rede (Percentis)** | P50 / P95 / P99 sob Carga Concorrente | **8.39 / 15.24 / 16.1** | ms |\n\n---\n\n## 4. Auditoria de Hardening e Isolamento de Contêiner\n\n| Controle de Segurança | Status | Valor Inspecionado | Peso | Descrição |\n| :--- | :---: | :---: | :---: | :--- |\n| **Bloqueio de Escalação de Privilégio (no-new-privileges)** | `APROVADO` | `NoNewPrivs=1` | 25 pts | Impede que processos ganhem novos privilégios via binários SUID/SGID (ativado nativamente pelo DeployDock). |\n| **Proteção Anti-Fork-Bomb (Limite de PIDs no Cgroup)** | `APROVADO` | `pids.max=256` | 20 pts | Limita o número máximo de processos simultâneos no contêiner (DeployDock define pids_limit=256). |\n| **Isolamento do Docker Socket (/var/run/docker.sock)** | `APROVADO` | `Isolado (Seguro)` | 20 pts | Garante que o contêiner da aplicação não tenha acesso ao daemon Docker do host. |\n| **Restrição de Modo Privilegiado (CAP_SYS_ADMIN bloqueado)** | `APROVADO` | `CapEff=0x00000000a80425fb` | 15 pts | Verifica se capabilities administrativas críticas do Kernel Linux estão desativadas. |\n| **Filtro de Syscalls do Kernel (Seccomp BPF)** | `APROVADO` | `filter (bpf)` | 10 pts | Restringe chamadas de sistema perigosas no nível do Kernel. |\n| **Quotas de Recursos Cgroup (RAM / CPU)** | `APROVADO` | `RAM=1024.0MB, CPU=4.0 cores` | 10 pts | Protege o servidor contra exaustão de memória (OOM) ou monopólio de CPU por um único contêiner. |\n\n---\n\n## 5. Relatório Analítico dos Testes End-to-End (E2E) — DeployDock (50/50)\n\n| # | Categoria | Funcionalidade Testada | Endpoint | Latência | Status | Evidência Técnica Coletada |\n| :---: | :--- | :--- | :--- | :---: | :---: | :--- |\n| 1 | Autenticação & RBAC | **Autenticação OAuth2 / JWT Bearer Token** | `POST /api/v1/auth/login` | `103.9 ms` | **PASSOU** | HTTP 200 OK — Token JWT emitido (211 chars, tipo=bearer) |\n| 2 | Autenticação & RBAC | **Rejeição de Credenciais Inválidas & Registro Anti-Brute-Force** | `POST /api/v1/auth/login (invalid)` | `8.87 ms` | **PASSOU** | HTTP 401 — Nome de usuário ou senha incorretos. |\n| 3 | Autenticação & RBAC | **Validação de Sessão & Identidade JWT (/auth/me)** | `GET /api/v1/auth/me` | `6.15 ms` | **PASSOU** | Usuário='admin', Role='admin', Ativo=True |\n| 4 | Autenticação & RBAC | **Listagem de Contas Multi-Usuário Cadastradas** | `GET /api/v1/auth/users` | `7.43 ms` | **PASSOU** | 1 usuário(s) ativo(s) no banco de dados |\n| 5 | Autenticação & RBAC | **Criação de Conta com Papel Restrito ('viewer')** | `POST /api/v1/auth/users` | `55.1 ms` | **PASSOU** | Usuário 'viewer_audit_2373' criado com role='viewer' (id=da6294b6) |\n| 6 | Autenticação & RBAC | **Enforcement de Permissão RBAC (Viewer bloqueado com HTTP 403), Troca de Role, Toggle & Exclusão** | `PATCH /role, PATCH /toggle, DELETE /users/{id}` | `107.47 ms` | **PASSOU** | Viewer bloqueado em rota crítica (HTTP 403) + Role/Toggle/Delete validados |\n| 7 | Segurança & WAF | **Injeção Automática de Security Headers HTTP (CSP/XFO/Nosniff/Shield)** | `Middleware HTTP Security Shield` | `1.1 ms` | **PASSOU** | Headers presentes (5/5): x-content-type-options, x-frame-options, x-xss-protection, referrer-policy, x-deploydock-shield |\n| 8 | Segurança & WAF | **WAF — Bloqueio de SQL Injection Clássico (UNION SELECT)** | `GET /api/v1/projects?search=UNION SELECT...` | `3.06 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de SQL Injection detectado. |\n| 9 | Segurança & WAF | **WAF — Bloqueio de Blind / Time-Based SQL Injection (sleep / tautology)** | `GET /api/v1/projects?id=' OR '1'='1` | `22.49 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de SQL Injection detectado. |\n| 10 | Segurança & WAF | **WAF — Bloqueio de Cross-Site Scripting Refletido (<script>)** | `GET /api/v1/projects?filter=<script>...` | `23.02 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Cross-Site Scripting (XSS) detectado. |\n| 11 | Segurança & WAF | **WAF — Bloqueio de XSS via Event Handler (onerror= / onload=)** | `GET /api/v1/projects?avatar=onerror=...` | `21.02 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Cross-Site Scripting (XSS) detectado. |\n| 12 | Segurança & WAF | **WAF — Bloqueio de Path Traversal / LFI Unix (../../etc/passwd)** | `GET /api/v1/containers?path=../../etc/passwd` | `21.15 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Path Traversal detectado. |\n| 13 | Segurança & WAF | **WAF — Proteção contra Leitura de /proc/self e /etc/shadow** | `GET /api/v1/containers?inspect=/proc/self` | `21.13 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Path Traversal detectado. |\n| 14 | Segurança & WAF | **WAF — Bloqueio de Remote Code Execution (JNDI / Log4Shell Probe)** | `GET /api/v1/projects?probe=${jndi:...}` | `20.9 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Remote Code Execution / Shell Probe detectado. |\n| 15 | Segurança & WAF | **WAF — Bloqueio de Injeção de Reverse Shell (/bin/bash -i / netcat)** | `GET /api/v1/containers?cmd=/bin/bash -i...` | `20.25 ms` | **PASSOU** | HTTP 403 — Requisição bloqueada pelo WAF DeployDock: Padrão de Remote Code Execution / Shell Probe detectado. |\n| 16 | Segurança & WAF | **Proteção Anti-SSRF contra Cloud Metadata (169.254.169.254 / Loopback)** | `POST /api/v1/projects (repo_url=169.254.169.254)` | `49.39 ms` | **PASSOU** | HTTP 400 — Segurança Anti-SSRF: O host '169.254.169.254' não é permitido para clonagem Git. |\n| 17 | Segurança & WAF | **Motor de Simulação de Defesa Ativa WAF/IPS (/security/simulate-attack)** | `POST /api/v1/security/simulate-attack` | `31.13 ms` | **PASSOU** | Status='blocked_by_shield', Ataque='SQL Injection' |\n| 18 | Segurança & WAF | **Auditoria em Tempo Real, Configuração WAF & Banimento Dinâmico de IP** | `GET /security/overview + PUT /config + POST /block` | `68.87 ms` | **PASSOU** | Score Segurança=100%, Inspecionadas=414, Ataques Bloqueados=59 |\n| 19 | Observabilidade & Host | **Telemetria de Hardware do Servidor (CPU, RAM, SO, Docker Engine)** | `GET /api/v1/system/info` | `48.44 ms` | **PASSOU** | SO='Ubuntu 26.04.1 LTS' (x86_64), CPUs=12 cores, RAM=11920.79 MB, Docker=29.1.3 (API 1.52) |\n| 20 | Observabilidade & Host | **Visão Consolidada de Recursos Docker (/system/resources)** | `GET /api/v1/system/resources` | `4366.0 ms` | **PASSOU** | Imagens=32, Volumes=2, Redes=5 |\n| 21 | Observabilidade & Host | **Inspeção de Catálogo de Imagens Docker & Tamanhos em Disco** | `GET /api/v1/system/images` | `417.36 ms` | **PASSOU** | 9 imagens Docker catalogadas no host |\n| 22 | Observabilidade & Host | **Inspeção de Volumes Persistentes Docker & Mountpoints** | `GET /api/v1/system/volumes` | `14.63 ms` | **PASSOU** | 2 volumes persistentes ativos |\n| 23 | Observabilidade & Host | **Inspeção de Redes Bridge/Overlay & Sub-redes Docker** | `GET /api/v1/system/networks` | `13.61 ms` | **PASSOU** | 5 redes Docker listadas |\n| 24 | Observabilidade & Host | **Execução de System Prune (Limpeza Automatizada de Recursos Órfãos)** | `POST /api/v1/system/prune?target=networks` | `13.8 ms` | **PASSOU** | System Prune executado com sucesso (target=networks) |\n| 25 | Observabilidade & Host | **Checklist Automatizado de Prontidão para Produção (Traefik, DB, TLS, Secret)** | `GET /api/v1/system/production-check` | `323.75 ms` | **PASSOU** | Score de Prontidão=67% (4/6 itens aprovados) |\n| 26 | Gestão de Contêineres | **Listagem de Contêineres Ativos/Inativos com Mapeamento de Portas** | `GET /api/v1/containers?all=true` | `321.76 ms` | **PASSOU** | 4 contêiner(es) encontrado(s) (4 em execução) |\n| 27 | Gestão de Contêineres | **Inspeção Profunda de Contêiner (Mounts, Rede, Labels, Limites)** | `GET /api/v1/containers/e4f5b8a20223` | `72.46 ms` | **PASSOU** | Contêiner 'deploydock_simulador' (e4f5b8a20223) inspecionado com sucesso |\n| 28 | Gestão de Contêineres | **Reconfiguração Dinâmica Ao Vivo de Quotas Cgroup (RAM=512MB, CPU=1.0 vCPU)** | `PUT /api/v1/containers/e4f5b8a20223/resources` | `130.06 ms` | **PASSOU** | Quotas aplicadas em quente no contêiner 'deploydock_simulador' sem downtime |\n| 29 | Gestão de Contêineres | **Coletor Avançado de Logs (Tail & Timestamps ISO)** | `GET /api/v1/containers/e4f5b8a20223/logs` | `16.66 ms` | **PASSOU** | Streaming/buffer de logs coletado de 'deploydock_simulador' |\n| 30 | Gestão de Contêineres | **Filtro de Logs por Termo de Busca (search=INFO) & Janela Temporal (since_seconds)** | `GET /api/v1/containers/e4f5b8a20223/logs?search=INFO` | `17.2 ms` | **PASSOU** | Busca textual e filtro temporal executados com sucesso (HTTP 200) |\n| 31 | Gestão de Contêineres | **Execução de Comandos no Terminal Web do Contêiner** | `POST /api/v1/containers/e4f5b8a20223/exec` | `57.44 ms` | **PASSOU** | ExitCode=0 — Saída: 'DEPLOYDOCK_TERMINAL_OK / Linux 6.18.54.1-microsoft-standard-WSL2 x86_64' |\n| 32 | Gestão de Contêineres | **Execução de Comando com Workdir Isolado (/tmp)** | `POST /api/v1/containers/e4f5b8a20223/exec (workdir=/tmp)` | `51.03 ms` | **PASSOU** | Workdir verificado: pwd='/tmp' |\n| 33 | Segurança & WAF | **Proteção do Terminal contra Escape via Docker Socket (/var/run/docker.sock)** | `POST /api/v1/containers/e4f5b8a20223/exec (docker.sock)` | `32.53 ms` | **PASSOU** | HTTP 403 — Bloqueado pela política de segurança: Acesso direto ao socket Docker bloqueado |\n| 34 | Segurança & WAF | **Proteção do Terminal contra Fork Bomb (:(){ :|:& };:)** | `POST /api/v1/containers/e4f5b8a20223/exec (forkbomb)` | `35.03 ms` | **PASSOU** | HTTP 403 — Bloqueado pela política de segurança: Fork Bomb detectada |\n| 35 | Segurança & WAF | **Proteção do Terminal contra Destruição de Sistema de Arquivos (rm -rf /)** | `POST /api/v1/containers/e4f5b8a20223/exec (rm -rf /)` | `33.4 ms` | **PASSOU** | HTTP 403 — Bloqueado pela política de segurança: Destruição da raiz do sistema bloqueada |\n| 36 | Explorador de Arquivos | **Listagem de Diretórios Internos do Contêiner (/tmp)** | `GET /api/v1/containers/e4f5b8a20223/files?path=/tmp` | `51.74 ms` | **PASSOU** | Diretório '/tmp' listado em 'deploydock_simulador' (0 itens) |\n| 37 | Explorador de Arquivos | **Edição e Leitura de Arquivos In-Place dentro do Contêiner** | `PUT & GET /api/v1/containers/e4f5b8a20223/files/content` | `72.01 ms` | **PASSOU** | Arquivo '/tmp/deploydock_e2e_probe.txt' gravado e verificado (64 bytes) |\n| 38 | Explorador de Arquivos | **Upload Base64, Download Binário Íntegro e Exclusão de Arquivos** | `POST /upload, GET /download, DELETE /files` | `143.84 ms` | **PASSOU** | Ciclo completo Upload → Download (33 bytes verificados) → Delete executado em /tmp |\n| 39 | Backups & Persistência | **Exportação de Dump/Snapshot de Banco de Dados em 1 Clique (/db-dump)** | `GET /api/v1/containers/d6aa5c5ed62b/db-dump` | `447.85 ms` | **PASSOU** | Dump exportado do contêiner d6aa5c5ed62b (12082 bytes gerados) |\n| 40 | Projetos & GitOps | **Configuração de Roteamento Dinâmico Traefik & Subdomínios Automáticos** | `GET /api/v1/projects/routing-config` | `5.57 ms` | **PASSOU** | Base Domain='localhost', Scheme='http', TLS=False |\n| 41 | Projetos & GitOps | **Criação de Projeto GitOps com Quotas (RAM=256MB, CPU=0.5 vCPU) & Auto-Heal** | `POST /api/v1/projects` | `360.78 ms` | **PASSOU** | Projeto 'audit-probe-2380' criado (URL=http://audit-probe-2380.localhost, Template=FastAPI) |\n| 42 | Projetos & GitOps | **Atualização de Projeto (PATCH) & Bloqueio de Colisão de Subdomínio (HTTP 409)** | `PATCH /projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92 + POST (409 conflict)` | `29.34 ms` | **PASSOU** | PATCH Quotas=384MB/0.75vCPU (HTTP 200) / Colisão de subdomínio 'audit-probe-2380' bloqueada (HTTP 409) |\n| 43 | Projetos & GitOps | **Cofre de Variáveis .env com Criptografia Simétrica Fernet (AES-128) & CRUD** | `POST, GET & DELETE /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/env` | `35.61 ms` | **PASSOU** | 2 variáveis criptografadas com Fernet AES-128, descriptografadas em leitura e excluídas |\n| 44 | Projetos & GitOps | **Suporte a Ambientes de Preview Isolados por Branch / Pull Request** | `GET /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/previews` | `330.8 ms` | **PASSOU** | Endpoint de Preview Environments operacional (HTTP 200) |\n| 45 | Projetos & GitOps | **Sonda de Conectividade HTTP & Latência Individual por Projeto** | `GET /api/v1/projects/f44bb88c-a2ee-41b5-9958-91c299ba4c92/healthcheck` | `43.11 ms` | **PASSOU** | Verificação individual de saúde executada (status='None') |\n| 46 | Projetos & GitOps | **Validação Criptográfica de Webhooks GitHub (HMAC-SHA256)** | `POST /api/v1/webhooks/github` | `32.56 ms` | **PASSOU** | Assinatura falsa rejeitada (HTTP 401) e assinatura HMAC-SHA256 válida aceita (HTTP 202 - pong) |\n| 47 | Projetos & GitOps | **Linha do Tempo Global de Deployments & Auditoria de Commits** | `GET /api/v1/deployments` | `9.23 ms` | **PASSOU** | Histórico de deployments consultado (2 registros) |\n| 48 | Observabilidade & Host | **Monitoramento Contínuo de Uptime, Latência HTTP & Auto-Healing** | `GET /api/v1/projects/uptime/overview` | `5.56 ms` | **PASSOU** | Projetos monitorados=4, Auto-Heals acumulados=0 |\n| 49 | Backups & Persistência | **Backup & Restore de Volumes Docker em 1 Clique (.tar.gz)** | `POST /restore & GET /backup (/api/v1/system/volumes)` | `1198.99 ms` | **PASSOU** | Volume 'deploydock_benchmark_temp_vol' restaurado e exportado como GZIP válido (215 bytes) |\n| 50 | Observabilidade & Host | **Motor de Notificações Multicanal (Discord, Slack, Telegram, Webhook)** | `POST /api/v1/system/notifications/test` | `26.4 ms` | **PASSOU** | Alerta registrado e despachado (Canais: painel_interno) |\n\n---\n\n## 6. Comparativo Multi-Plataforma (DeployDock vs Outros Gerenciadores Docker)\n\n### 6.1 Comparativo de Performance e Consumo de Recursos\n\n| Plataforma | Tipo | Score Global | CPU Single (ops/s) | CPU Multi (ops/s) | Memória (MB/s) | Disco W/R (MB/s) | Random 4K IOPS | RAM Idle |\n| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n| **DeployDock PaaS (Execução Ao Vivo)** | PaaS & Container Security Manager | **98/100** | 2,270,659 | 4,537,436 | 1441.5 | 595.9 / 8631.4 | 182,141 | ~48.6 MB |\n| **Portainer CE 2.21** | Gerenciador de Contêineres | **56/100** | 385,000 | 1,920,000 | 2150.0 | 240.0 / 410.0 | 18,500 | ~145 MB |\n| **Coolify v4** | PaaS Self-Hosted | **71/100** | 362,000 | 1,780,000 | 2090.0 | 225.0 / 395.0 | 17,200 | ~680 MB |\n| **CapRover 1.13** | PaaS Docker Swarm | **54/100** | 374,000 | 1,840,000 | 2110.0 | 230.0 / 402.0 | 17,900 | ~310 MB |\n| **Dokploy v0.10** | PaaS Self-Hosted | **66/100** | 379,000 | 1,890,000 | 2135.0 | 235.0 / 408.0 | 18,200 | ~420 MB |\n\n### 6.2 Matriz Comparativa de Funcionalidades Suportadas Nativamente\n\n| Funcionalidade / Critério Técnico | Categoria | **DeployDock PaaS (Execução Ao Vivo)** | **Portainer CE 2.21** | **Coolify v4** | **CapRover 1.13** | **Dokploy v0.10** |\n| :--- | :--- | :---: | :---: | :---: | :---: | :---: |\n| **WAF Integrado (SQLi, Blind SQLi, XSS, Path Traversal, RCE)** | Segurança & WAF | SIM | NÃO | NÃO | NÃO | NÃO |\n| **Anti-Brute-Force, Anti-SSRF & Rate Limiting Nativo** | Segurança & WAF | SIM | SIM | SIM | SIM | SIM |\n| **Hardening Padrão (no-new-privileges + pids_limit=256)** | Hardening de Contêiner | SIM | NÃO | NÃO | NÃO | NÃO |\n| **Controle de Acesso RBAC (Admin, Developer, Viewer)** | Segurança & WAF | SIM | SIM | SIM | NÃO | SIM |\n| **Criptografia de Variáveis .env em Repouso (AES-128 Fernet)** | Segurança & WAF | SIM | NÃO | SIM | NÃO | NÃO |\n| **GitOps Zero-Config (Auto-Dockerfile Node/Python/Go/HTML)** | GitOps & Deploy | SIM | NÃO | SIM | NÃO | SIM |\n| **Preview Deployments Isolados por Branch / Pull Request** | GitOps & Deploy | SIM | NÃO | SIM | NÃO | SIM |\n| **Health Check com Rollback Automático + Manual 1-Clique** | GitOps & Deploy | SIM | NÃO | SIM | SIM | NÃO |\n| **Roteamento Automático Traefik + Let's Encrypt HTTPS** | GitOps & Deploy | SIM | NÃO | SIM | SIM | SIM |\n| **Explorador de Arquivos Interno (Ver, Editar, Upload, Download)** | Contêineres & Arquivos | SIM | NÃO | NÃO | NÃO | NÃO |\n| **Terminal Web Interativo com Filtro Anti-Escape/ForkBomb** | Contêineres & Arquivos | SIM | NÃO | NÃO | NÃO | NÃO |\n| **Quotas de CPU (vCPU) e RAM Dinâmicas sem Recriar Imagem** | Contêineres & Arquivos | SIM | SIM | SIM | SIM | SIM |\n| **Streaming de Logs WebSocket com Filtro de Severidade/Busca** | Observabilidade | SIM | SIM | SIM | SIM | SIM |\n| **Monitor de Uptime HTTP, Latência & Auto-Healing Nativo** | Observabilidade | SIM | NÃO | NÃO | NÃO | NÃO |\n| **Backup & Restore de Volumes (.tar.gz) + DB Dump 1-Clique** | Backups & Persistência | SIM | NÃO | SIM | NÃO | SIM |\n| **Notificações Multicanal (Discord, Slack, Telegram, Webhook)** | Observabilidade | SIM | NÃO | SIM | SIM | SIM |\n| **Baixo Consumo de RAM da Plataforma (< 250 MB em Idle)** | Eficiência & UX | SIM | SIM | NÃO | NÃO | NÃO |\n\n---\n\n## 7. Conclusão e Parecer Técnico\n\nCom base nos testes automatizados executados em `2026-10-22T04:13:02.882986+00:00`, a plataforma **DeployDock PaaS (Execução Ao Vivo)** atingiu pontuação global de **98/100**, com **100/100** em isolamento e hardening de contêineres e **100.0%** de aprovação nos testes funcionais e de segurança (WAF, RBAC, GitOps, File Explorer, Terminal Guarded e Backups).\n\n*Documento gerado automaticamente pela suíte `deploydock-benchmark-suite` — Assinatura SHA-256: `e6692dcadcea9f777d6be3f4b6ccb95e...`*\n",
+  "integrity_sha256": "e6692dcadcea9f777d6be3f4b6ccb95e563989b93095a293fd73bfe298893363"
+}

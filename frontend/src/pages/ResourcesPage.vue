@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   ArrowUpDown,
   CheckCircle2,
+  Download,
+  Upload,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { SystemResourcesOverview } from '@/services/types';
@@ -165,6 +167,66 @@ const handleDeleteVolume = async (name: string) => {
   } finally {
     deletingId.value = null;
   }
+};
+
+// Backup & Restore de Volumes Docker
+const backingUpVolume = ref<string | null>(null);
+const showRestorePanel = ref(false);
+const restoreVolumeName = ref('');
+const restoringVolume = ref(false);
+const restoreInputRef = ref<HTMLInputElement | null>(null);
+
+const handleBackupVolume = async (name: string) => {
+  backingUpVolume.value = name;
+  try {
+    await api.system.backupVolume(name);
+    showFeedback('success', `Backup do volume "${name}" (.tar.gz) exportado com sucesso!`);
+  } catch (err: any) {
+    showFeedback('error', `Falha ao exportar backup do volume: ${err.message || err}`);
+  } finally {
+    backingUpVolume.value = null;
+  }
+};
+
+const triggerRestoreFile = (volName?: string) => {
+  if (volName) {
+    restoreVolumeName.value = volName;
+  }
+  showRestorePanel.value = true;
+};
+
+const onRestoreFileSelected = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  const targetVol = restoreVolumeName.value.trim();
+  if (!file) return;
+  if (!targetVol) {
+    alert('Informe o nome do volume de destino para restaurar o backup.');
+    input.value = '';
+    return;
+  }
+
+  restoringVolume.value = true;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const resStr = String(reader.result || '');
+    const base64 = resStr.includes(',') ? (resStr.split(',')[1] || '') : resStr;
+    try {
+      const res = await api.system.restoreVolume(targetVol, base64);
+      showFeedback(
+        'success',
+        `Backup restaurado com sucesso no volume "${res.volume}" (${(res.restored_bytes / 1024).toFixed(1)} KB extraídos).`
+      );
+      showRestorePanel.value = false;
+      await loadData(true);
+    } catch (err: any) {
+      showFeedback('error', `Falha ao restaurar volume: ${err.message || err}`);
+    } finally {
+      restoringVolume.value = false;
+      input.value = '';
+    }
+  };
+  reader.readAsDataURL(file);
 };
 </script>
 
@@ -784,53 +846,126 @@ const handleDeleteVolume = async (name: string) => {
           </div>
 
           <!-- Aba Volumes -->
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-left text-xs border-collapse font-mono">
-              <thead>
-                <tr class="border-b border-dock-border bg-dock-surface text-dock-text-dim uppercase text-[11px]">
-                  <th class="px-4 py-2.5 font-medium">Nome do Volume</th>
-                  <th class="px-4 py-2.5 font-medium">Driver</th>
-                  <th class="px-4 py-2.5 font-medium">Status</th>
-                  <th class="px-4 py-2.5 font-medium">Tamanho</th>
-                  <th class="px-4 py-2.5 font-medium text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-dock-border">
-                <tr
-                  v-for="vol in data.storage.volumes_list"
-                  :key="vol.name"
-                  class="hover:bg-dock-surface/60 transition-colors"
+          <div v-else class="space-y-3">
+            <input
+              ref="restoreInputRef"
+              type="file"
+              accept=".tar,.gz,.tgz"
+              class="hidden"
+              @change="onRestoreFileSelected"
+            />
+
+            <div class="px-4 pt-3 flex flex-wrap items-center justify-between gap-2">
+              <p class="text-xs text-dock-text-dim">
+                Exporte qualquer volume em <code class="text-dock-accent">.tar.gz</code> ou restaure dados de um arquivo de backup em 1 clique.
+              </p>
+              <button
+                @click="showRestorePanel = !showRestorePanel"
+                class="px-3 py-1.5 rounded text-xs font-medium bg-dock-accent hover:bg-dock-accent-hover text-white flex items-center gap-1.5 cursor-pointer"
+              >
+                <Upload class="w-3.5 h-3.5" /> Restaurar Backup em Volume (.tar.gz)
+              </button>
+            </div>
+
+            <div
+              v-if="showRestorePanel"
+              class="mx-4 p-3.5 rounded bg-dock-bg border border-dock-accent/40 flex flex-col sm:flex-row sm:items-center gap-3 text-xs"
+            >
+              <div class="flex-1">
+                <label class="block text-dock-text-muted mb-1">
+                  Nome do Volume de Destino (existente ou novo volume a criar):
+                </label>
+                <input
+                  v-model="restoreVolumeName"
+                  type="text"
+                  placeholder="Ex: deploydock_pgdata ou meu_volume_backup"
+                  class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-3 py-1.5 font-mono text-dock-text outline-none"
+                />
+              </div>
+              <div class="flex items-center gap-2 self-end">
+                <button
+                  @click="restoreInputRef?.click()"
+                  :disabled="restoringVolume || !restoreVolumeName.trim()"
+                  class="px-3.5 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  <td class="px-4 py-2.5 text-dock-text font-medium">{{ vol.name }}</td>
-                  <td class="px-4 py-2.5 text-dock-text-dim">{{ vol.driver }}</td>
-                  <td class="px-4 py-2.5 font-sans">
-                    <span
-                      class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border"
-                      :class="
-                        vol.in_use
-                          ? 'bg-dock-success/10 text-dock-success border-dock-success/30'
-                          : 'bg-dock-warning/10 text-dock-warning border-dock-warning/30'
-                      "
-                    >
-                      {{ vol.in_use ? `Montado (${vol.ref_count})` : 'Órfão (recuperável)' }}
-                    </span>
-                  </td>
-                  <td class="px-4 py-2.5 text-dock-text font-semibold tabular-nums">
-                    {{ formatSizeMb(vol.size_mb) }}
-                  </td>
-                  <td class="px-4 py-2.5 text-right">
-                    <button
-                      @click="handleDeleteVolume(vol.name)"
-                      :disabled="vol.in_use || deletingId === vol.name"
-                      class="px-2.5 py-1 rounded text-[11px] font-sans border border-dock-border bg-dock-surface hover:bg-dock-error/15 hover:text-dock-error hover:border-dock-error/30 text-dock-text-muted disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
-                      :title="vol.in_use ? 'Volume montado em contêiner' : 'Remover volume'"
-                    >
-                      Remover
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  <Upload class="w-3.5 h-3.5" />
+                  {{ restoringVolume ? 'Restaurando...' : 'Escolher Arquivo .tar.gz e Restaurar' }}
+                </button>
+                <button
+                  @click="showRestorePanel = false"
+                  class="px-2.5 py-1.5 text-dock-text-dim hover:text-dock-text cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse font-mono">
+                <thead>
+                  <tr class="border-b border-dock-border bg-dock-surface text-dock-text-dim uppercase text-[11px]">
+                    <th class="px-4 py-2.5 font-medium">Nome do Volume</th>
+                    <th class="px-4 py-2.5 font-medium">Driver</th>
+                    <th class="px-4 py-2.5 font-medium">Status</th>
+                    <th class="px-4 py-2.5 font-medium">Tamanho</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Backup & Ações</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-dock-border">
+                  <tr
+                    v-for="vol in data.storage.volumes_list"
+                    :key="vol.name"
+                    class="hover:bg-dock-surface/60 transition-colors"
+                  >
+                    <td class="px-4 py-2.5 text-dock-text font-medium">{{ vol.name }}</td>
+                    <td class="px-4 py-2.5 text-dock-text-dim">{{ vol.driver }}</td>
+                    <td class="px-4 py-2.5 font-sans">
+                      <span
+                        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border"
+                        :class="
+                          vol.in_use
+                            ? 'bg-dock-success/10 text-dock-success border-dock-success/30'
+                            : 'bg-dock-warning/10 text-dock-warning border-dock-warning/30'
+                        "
+                      >
+                        {{ vol.in_use ? `Montado (${vol.ref_count})` : 'Órfão (recuperável)' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-2.5 text-dock-text font-semibold tabular-nums">
+                      {{ formatSizeMb(vol.size_mb) }}
+                    </td>
+                    <td class="px-4 py-2.5 text-right whitespace-nowrap">
+                      <div class="inline-flex items-center gap-1.5 font-sans">
+                        <button
+                          @click="handleBackupVolume(vol.name)"
+                          :disabled="backingUpVolume === vol.name"
+                          class="px-2.5 py-1 rounded text-[11px] border border-dock-accent/40 bg-dock-accent/10 hover:bg-dock-accent/20 text-dock-accent transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          title="Exportar backup completo deste volume em .tar.gz"
+                        >
+                          <Download class="w-3 h-3" />
+                          {{ backingUpVolume === vol.name ? 'Gerando...' : 'Backup .tar.gz' }}
+                        </button>
+                        <button
+                          @click="triggerRestoreFile(vol.name)"
+                          class="px-2 py-1 rounded text-[11px] border border-dock-border bg-dock-surface hover:bg-dock-panel text-dock-text-muted hover:text-dock-text transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Restaurar arquivo .tar.gz para dentro deste volume"
+                        >
+                          <Upload class="w-3 h-3" /> Restaurar
+                        </button>
+                        <button
+                          @click="handleDeleteVolume(vol.name)"
+                          :disabled="vol.in_use || deletingId === vol.name"
+                          class="px-2.5 py-1 rounded text-[11px] border border-dock-border bg-dock-surface hover:bg-dock-error/15 hover:text-dock-error hover:border-dock-error/30 text-dock-text-muted disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                          :title="vol.in_use ? 'Volume montado em contêiner' : 'Remover volume'"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

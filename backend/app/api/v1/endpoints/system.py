@@ -1,52 +1,231 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from app.services.docker_service import DockerService
-from app.api.deps import get_docker_service, require_role
-from app.schemas.webhook import SystemInfo
+from typing import Any, Dict, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel
 
-router = APIRouter(dependencies=[Depends(require_role("admin", "developer"))])
+from app.api.deps import get_current_user, get_docker_service, require_role
+from app.core.waf import security_manager
+from app.models.user import User
+from app.schemas.webhook import SystemInfo
+from app.services.docker_service import DockerService
+from app.services.notification_service import notification_manager
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+class VolumeRestoreRequest(BaseModel):
+    archive_base64: str
+
+
+class NotificationConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    discord_webhook_url: Optional[str] = None
+    slack_webhook_url: Optional[str] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    custom_webhook_url: Optional[str] = None
+    notify_on_deploy_success: Optional[bool] = None
+    notify_on_deploy_failure: Optional[bool] = None
+    notify_on_waf_block: Optional[bool] = None
+    notify_on_container_down: Optional[bool] = None
+    notify_on_high_resource: Optional[bool] = None
+    cpu_threshold_percent: Optional[int] = None
+    ram_threshold_percent: Optional[int] = None
+
+
+class TestNotificationRequest(BaseModel):
+    title: str = "Teste de Alerta DeployDock"
+    message: str = "O sistema de notificações em tempo real do DeployDock está operacional!"
+    severity: str = "info"
+
 
 @router.get("/info", response_model=SystemInfo)
 async def system_info(docker: DockerService = Depends(get_docker_service)):
     return await docker.get_system_info()
 
+
 @router.get("/resources")
 async def system_resources(docker: DockerService = Depends(get_docker_service)):
     return await docker.get_resources_overview()
+
 
 @router.get("/images")
 async def list_images(docker: DockerService = Depends(get_docker_service)):
     return await docker.list_images()
 
-@router.delete("/images/{image_id}")
-async def remove_image(image_id: str, docker: DockerService = Depends(get_docker_service)):
+
+@router.delete("/images/{image_id}", dependencies=[Depends(require_role("admin", "developer"))])
+async def remove_image(
+    image_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
     try:
         await docker.remove_image(image_id, force=True)
+        security_manager.log_event(
+            event_type="container_action",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/system/images/{image_id}",
+            detail=f"Imagem Docker '{image_id}' removida do disco",
+            user=current_user.username,
+        )
         return {"message": "Removed"}
     except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/volumes")
 async def list_volumes(docker: DockerService = Depends(get_docker_service)):
     return await docker.list_volumes()
 
-@router.delete("/volumes/{volume_name}")
-async def remove_volume(volume_name: str, docker: DockerService = Depends(get_docker_service)):
+
+@router.delete("/volumes/{volume_name}", dependencies=[Depends(require_role("admin", "developer"))])
+async def remove_volume(
+    volume_name: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
     try:
         await docker.remove_volume(volume_name)
+        security_manager.log_event(
+            event_type="container_action",
+            severity="medium",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/system/volumes/{volume_name}",
+            detail=f"Volume Docker '{volume_name}' excluído",
+            user=current_user.username,
+        )
         return {"message": "Removed"}
     except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/volumes/{volume_name}/backup", dependencies=[Depends(require_role("admin", "developer"))])
+async def backup_volume(
+    volume_name: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    """Exporta qualquer Volume Docker em um arquivo compactado .tar.gz em 1 clique."""
+    try:
+        gz_bytes, filename = await docker.export_volume_backup(volume_name)
+        security_manager.log_event(
+            event_type="backup",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/system/volumes/{volume_name}/backup",
+            detail=f"Backup do volume '{volume_name}' exportado ({len(gz_bytes)} bytes)",
+            user=current_user.username,
+        )
+        return Response(
+            content=gz_bytes,
+            media_type="application/gzip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/volumes/{volume_name}/restore", dependencies=[Depends(require_role("admin", "developer"))])
+async def restore_volume(
+    volume_name: str,
+    body: VolumeRestoreRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    docker: DockerService = Depends(get_docker_service),
+):
+    """Restaura um arquivo .tar.gz ou .tar para dentro de um Volume Docker (criando-o se necessário)."""
+    try:
+        res = await docker.restore_volume_backup(volume_name, body.archive_base64)
+        security_manager.log_event(
+            event_type="backup",
+            severity="medium",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/system/volumes/{volume_name}/restore",
+            detail=f"Backup restaurado no volume '{volume_name}' ({res.get('restored_bytes')} bytes)",
+            user=current_user.username,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/networks")
 async def list_networks(docker: DockerService = Depends(get_docker_service)):
     return await docker.list_networks()
 
-@router.post("/prune")
+
+@router.post("/prune", dependencies=[Depends(require_role("admin", "developer"))])
 async def prune_system(
+    request: Request,
     target: str = Query("all", description="all | images | containers | volumes | networks"),
+    current_user: User = Depends(get_current_user),
     docker: DockerService = Depends(get_docker_service),
 ):
-    return await docker.prune_system(target=target)
+    res = await docker.prune_system(target=target)
+    security_manager.log_event(
+        event_type="container_action",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/system/prune?target={target}",
+        detail=f"System Prune ({target}) executado: {res.get('space_reclaimed_mb', 0)} MB liberados",
+        user=current_user.username,
+    )
+    return res
+
+
+@router.get("/notifications")
+async def get_notifications_overview() -> Dict[str, Any]:
+    """Retorna configurações de canais de alerta (Discord, Telegram, Slack, Webhook) e histórico."""
+    return notification_manager.get_overview()
+
+
+@router.put("/notifications/config", dependencies=[Depends(require_role("admin"))])
+async def update_notifications_config(
+    body: NotificationConfigUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    updates = body.model_dump(exclude_unset=True)
+    cfg = notification_manager.update_config(updates)
+    security_manager.log_event(
+        event_type="security_config",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path="/api/v1/system/notifications/config",
+        detail=f"Canais e regras de notificação atualizados por {current_user.username}",
+        user=current_user.username,
+    )
+    return {"config": cfg, "overview": notification_manager.get_overview()}
+
+
+@router.post("/notifications/test", dependencies=[Depends(require_role("admin", "developer"))])
+async def send_test_notification(
+    body: TestNotificationRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    entry = await notification_manager.notify(
+        event_type="test_alert",
+        title=body.title,
+        message=f"{body.message}\nDisparado por: {current_user.username}",
+        severity=body.severity,
+        force=True,
+    )
+    security_manager.log_event(
+        event_type="security_config",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path="/api/v1/system/notifications/test",
+        detail=f"Alerta de teste enviado para {', '.join(entry.get('channels', []))}",
+        user=current_user.username,
+    )
+    return entry
 
 
 @router.get("/production-check")
@@ -77,7 +256,7 @@ async def production_check(docker: DockerService = Depends(get_docker_service)):
     checks = [
         {
             "id": "traefik",
-            "label": "Proxy Reverso Traefik v3.6 em execução",
+            "label": "Proxy Reverso Traefik em execução",
             "passed": traefik_running,
             "hint": "Necessário para rotear subdomínios, domínios customizados e SSL Let's Encrypt.",
         },
@@ -122,5 +301,3 @@ async def production_check(docker: DockerService = Depends(get_docker_service)):
         "apps_tls_enabled": settings.APPS_TLS_ENABLED,
         "checks": checks,
     }
-
-
