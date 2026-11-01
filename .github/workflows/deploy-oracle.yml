@@ -1,0 +1,64 @@
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Atualizar DeployDock na Oracle Cloud
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Verificar configuração da chave SSH
+        id: check_secrets
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::warning::Secret ORACLE_SSH_KEY não configurado no GitHub (Settings -> Secrets and variables -> Actions). Pulando deploy automático."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Empacotar e enviar atualização para a VM Oracle
+        if: steps.check_secrets.outputs.configured == 'true'
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST || '147.15.0.139' }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER || 'ubuntu' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+
+          tar --exclude=".git" \
+              --exclude=".env" \
+              --exclude="repos" \
+              --exclude="node_modules" \
+              --exclude=".venv" \
+              --exclude="venv" \
+              --exclude=".ruff_cache" \
+              --exclude="__pycache__" \
+              --exclude="deploydock.db" \
+              --exclude="deploydock-benchmark-suite" \
+              -czf /tmp/deploydock-update.tar.gz .
+
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/oracle.key /tmp/deploydock-update.tar.gz "${ORACLE_USER}@${ORACLE_HOST}:~/deploydock-update.tar.gz"
+
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/oracle.key "${ORACLE_USER}@${ORACLE_HOST}" << 'EOF'
+            set -e
+            mkdir -p ~/DeployDock
+            tar -xzf ~/deploydock-update.tar.gz -C ~/DeployDock
+            rm -f ~/deploydock-update.tar.gz
+            cd ~/DeployDock
+            sed -i 's/\r$//' *.sh || true
+            chmod +x *.sh || true
+            sudo docker compose up -d --build
+            sudo docker image prune -f
+            sudo docker compose ps
+          EOF
