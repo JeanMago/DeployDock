@@ -78,6 +78,7 @@ const ghDeviceFlow = ref<{
   interval: number;
 } | null>(null);
 const ghDevicePolling = ref(false);
+const ghDeviceStatusMsg = ref('');
 const copiedDeviceCode = ref(false);
 let devicePollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -111,6 +112,28 @@ const filteredGhRepos = computed(() => {
   );
 });
 
+const startDevicePollingLoop = (intervalSec = 7) => {
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  devicePollTimer = setInterval(async () => {
+    try {
+      const res = await api.paas.pollGithubDeviceFlow();
+      if (res.status === 'connected') {
+        if (devicePollTimer) clearInterval(devicePollTimer);
+        ghDevicePolling.value = false;
+        ghDeviceFlow.value = null;
+        ghDeviceStatusMsg.value = '';
+        showGhConnectBox.value = false;
+        ghStatus.value = res.github;
+        ghRepos.value = await api.paas.listGithubRepos();
+      } else if (res.error_description) {
+        ghDeviceStatusMsg.value = res.error_description;
+      }
+    } catch {
+      // continua aguardando autorização
+    }
+  }, Math.max(7, intervalSec + 2) * 1000);
+};
+
 const loadGithubIntegration = async (customUser?: string) => {
   ghReposLoading.value = true;
   try {
@@ -118,6 +141,12 @@ const loadGithubIntegration = async (customUser?: string) => {
     ghStatus.value = st;
     if (!ghAccountFilter.value && st.username) {
       ghAccountFilter.value = st.username;
+    }
+    if (!st.connected && st.device_flow?.user_code) {
+      ghDeviceFlow.value = st.device_flow;
+      ghDevicePolling.value = true;
+      showGhConnectBox.value = true;
+      startDevicePollingLoop(st.device_flow.interval || 5);
     }
     ghRepos.value = await api.paas.listGithubRepos(customUser);
   } catch {
@@ -163,6 +192,7 @@ const handleConnectGithubToken = async () => {
 
 const handleStartDeviceFlow = async () => {
   error.value = '';
+  ghDeviceStatusMsg.value = '';
   try {
     const flow = await api.paas.startGithubDeviceFlow();
     ghDeviceFlow.value = flow;
@@ -173,25 +203,30 @@ const handleStartDeviceFlow = async () => {
     } catch {
       // ignore clipboard error
     }
-
-    if (devicePollTimer) clearInterval(devicePollTimer);
-    devicePollTimer = setInterval(async () => {
-      try {
-        const res = await api.paas.pollGithubDeviceFlow();
-        if (res.status === 'connected') {
-          if (devicePollTimer) clearInterval(devicePollTimer);
-          ghDevicePolling.value = false;
-          ghDeviceFlow.value = null;
-          showGhConnectBox.value = false;
-          ghStatus.value = res.github;
-          ghRepos.value = await api.paas.listGithubRepos();
-        }
-      } catch {
-        // continúa aguardando autorização
-      }
-    }, Math.max(5, flow.interval || 5) * 1000);
+    startDevicePollingLoop(flow.interval || 5);
   } catch (e: any) {
     error.value = e?.message || 'Falha ao iniciar autenticação OAuth Device no GitHub.';
+  }
+};
+
+const handleManualPollDeviceFlow = async () => {
+  ghDeviceStatusMsg.value = 'Verificando autorização junto ao GitHub...';
+  try {
+    const res = await api.paas.pollGithubDeviceFlow();
+    if (res.status === 'connected') {
+      if (devicePollTimer) clearInterval(devicePollTimer);
+      ghDevicePolling.value = false;
+      ghDeviceFlow.value = null;
+      ghDeviceStatusMsg.value = '';
+      showGhConnectBox.value = false;
+      ghStatus.value = res.github;
+      ghRepos.value = await api.paas.listGithubRepos();
+    } else {
+      ghDeviceStatusMsg.value =
+        res.error_description || 'Ainda aguardando confirmação do código no GitHub...';
+    }
+  } catch (e: any) {
+    ghDeviceStatusMsg.value = e?.message || 'Erro ao verificar autorização no GitHub.';
   }
 };
 
@@ -522,10 +557,23 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
                   Passo 2: Copiar {{ ghDeviceFlow.user_code }} e Abrir GitHub
                   <ExternalLink class="w-3.5 h-3.5" />
                 </button>
+                <button
+                  type="button"
+                  @click="handleManualPollDeviceFlow"
+                  class="px-3.5 py-2.5 rounded-lg bg-dock-success text-white font-semibold text-xs hover:opacity-90 transition-opacity flex items-center gap-2 cursor-pointer shadow-sm"
+                >
+                  <CheckCircle2 class="w-4 h-4" />
+                  Passo 3: Já Autorizei — Atualizar Acesso
+                </button>
               </div>
               <div class="text-[11px] text-dock-text-dim flex items-center gap-2">
                 <RefreshCw class="w-3 h-3 animate-spin text-dock-accent" />
-                Aguardando você colar o código <strong>{{ ghDeviceFlow.user_code }}</strong> em <code>github.com/login/device</code> e clicar em "Authorize"...
+                <span>
+                  {{
+                    ghDeviceStatusMsg ||
+                    `Aguardando você colar o código ${ghDeviceFlow.user_code} em github.com/login/device e clicar em "Authorize"...`
+                  }}
+                </span>
               </div>
             </div>
 

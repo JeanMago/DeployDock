@@ -24,6 +24,8 @@ const titlesMap: Record<string, string> = {
   Deployments: 'Histórico de Deploys',
   Resources: 'Recursos & Armazenamento',
   Security: 'Segurança, WAF & Firewall',
+  Account: 'Minha Conta (Git & Google)',
+  AdminAccess: 'Controle de Acessos & Contas',
   Settings: 'Configurações do Sistema',
   Tutorial: 'Documentação & Guia',
 };
@@ -119,7 +121,11 @@ onUnmounted(() => {
 
       <!-- Usuário Logado e Logout -->
       <div v-if="currentUser" class="flex items-center gap-2.5 pl-3 border-l border-dock-border">
-        <div class="hidden sm:flex items-center gap-2 text-xs">
+        <RouterLink
+          to="/account"
+          class="hidden sm:flex items-center gap-2 text-xs hover:opacity-80 transition-opacity"
+          title="Abrir Minha Conta (GitHub, Google & E-mail)"
+        >
           <span class="font-mono text-dock-text">{{ currentUser.username }}</span>
           <span
             class="text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase"
@@ -131,7 +137,7 @@ onUnmounted(() => {
           >
             {{ currentUser.role }}
           </span>
-        </div>
+        </RouterLink>
         <button
           @click="logout"
           class="p-1.5 text-dock-text-dim hover:text-dock-error hover:bg-dock-panel rounded transition-colors cursor-pointer"

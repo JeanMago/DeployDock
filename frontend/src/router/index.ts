@@ -60,6 +60,17 @@ const router = createRouter({
           component: () => import('@/pages/SecurityPage.vue')
         },
         {
+          path: 'account',
+          name: 'Account',
+          component: () => import('@/pages/AccountPage.vue')
+        },
+        {
+          path: 'admin/access',
+          name: 'AdminAccess',
+          component: () => import('@/pages/AdminAccessPage.vue'),
+          meta: { requiresAdmin: true }
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/pages/SettingsPage.vue'),

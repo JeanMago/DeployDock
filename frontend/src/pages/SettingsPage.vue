@@ -13,6 +13,7 @@ import {
   Bell,
   Send,
   Shield,
+  Mail,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { SystemInfo, User, NotificationOverview } from '@/services/types';
@@ -338,16 +339,16 @@ const prune = async () => {
 
     <div v-if="loading" class="flex justify-center py-10"><LoadingSpinner /></div>
     <div v-else-if="sysInfo" class="space-y-6">
-      <!-- 1. Central de Alertas & Notificações (Discord / Telegram / Slack / Webhook) -->
+      <!-- 1. Central de Alertas, Mensagens & Notificações (E-mail / Discord / Telegram / Slack / Webhook) -->
       <div v-if="notifOverview" class="glass-panel p-5 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dock-border pb-3">
           <div>
             <h3 class="font-semibold text-sm text-dock-text flex items-center gap-2">
               <Bell class="w-4 h-4 text-dock-accent" />
-              Central de Alertas & Notificações (Discord / Telegram / Slack / Webhook)
+              Central de Mensagens & Notificações (E-mail / Discord / Telegram / Slack / Webhook)
             </h3>
             <p class="text-xs text-dock-text-dim mt-0.5">
-              Receba avisos automáticos em tempo real quando um deploy terminar, um ataque WAF for bloqueado ou um contêiner cair.
+              Receba avisos automáticos por E-mail e Webhooks quando um deploy terminar, um ataque WAF for bloqueado ou um contêiner cair.
             </p>
           </div>
           <div class="flex items-center gap-2 self-start sm:self-auto">
@@ -376,6 +377,109 @@ const prune = async () => {
         >
           <CheckCircle2 class="w-4 h-4 shrink-0" />
           <span>{{ notifFeedback }}</span>
+        </div>
+
+        <!-- Canal de Notificação por E-mail (SMTP & Contas Logadas) -->
+        <div class="p-3.5 rounded-lg bg-dock-bg border border-dock-accent/30 space-y-3 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-semibold text-dock-text flex items-center gap-2">
+              <Mail class="w-4 h-4 text-dock-accent" />
+              Notificação por E-mail (SMTP & Contas Logadas Git / Google / Local)
+            </div>
+            <div class="flex flex-wrap items-center gap-4">
+              <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text font-medium">
+                <input
+                  type="checkbox"
+                  v-model="notifOverview.config.email_enabled"
+                  :disabled="!isAdmin"
+                  class="accent-dock-accent"
+                />
+                <span>Ativar Envio por E-mail</span>
+              </label>
+              <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
+                <input
+                  type="checkbox"
+                  v-model="notifOverview.config.notify_logged_users_emails"
+                  :disabled="!isAdmin"
+                  class="accent-dock-accent"
+                />
+                <span>Notificar e-mails das contas logadas automaticamente</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div class="sm:col-span-2">
+              <label class="block text-dock-text-muted mb-1">Destinatários de E-mail (separados por vírgula)</label>
+              <input
+                v-model="notifOverview.config.email_recipients"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="admin@seudominio.com, equipe@gmail.com"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Remetente (From E-mail)</label>
+              <input
+                v-model="notifOverview.config.smtp_from_email"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="alertas@deploydock.local"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+            <div>
+              <label class="block text-dock-text-muted mb-1">Servidor SMTP (Host)</label>
+              <input
+                v-model="notifOverview.config.smtp_host"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="smtp.gmail.com"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Porta SMTP</label>
+              <input
+                v-model.number="notifOverview.config.smtp_port"
+                type="number"
+                :disabled="!isAdmin"
+                placeholder="587"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Usuário SMTP (Opcional)</label>
+              <input
+                v-model="notifOverview.config.smtp_user"
+                type="text"
+                :disabled="!isAdmin"
+                placeholder="seuemail@gmail.com"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-dock-text-muted mb-1">Senha / App Password SMTP</label>
+              <input
+                v-model="notifOverview.config.smtp_password"
+                type="password"
+                :disabled="!isAdmin"
+                placeholder="••••••••••••"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+              />
+            </div>
+          </div>
+
+          <div
+            v-if="notifOverview.resolved_email_recipients && notifOverview.resolved_email_recipients.length > 0"
+            class="text-[11px] font-mono text-dock-text-dim"
+          >
+            E-mails ativos na rota de disparo: <span class="text-dock-accent">{{ notifOverview.resolved_email_recipients.join(', ') }}</span>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">

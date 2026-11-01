@@ -14,12 +14,17 @@ Inclui:
 10. Autoscaling Baseado em Métricas de CPU/RAM (Réplicas Horizontais)
 """
 
+import asyncio
 import datetime as dt
 import hashlib
 import hmac
+import json
 import logging
+import os
 import re
 import secrets
+import sys
+import time
 import uuid
 from typing import Any
 
@@ -395,6 +400,8 @@ class PaaSManager:
         }
         self.traefik_certificates: dict[str, dict[str, Any]] = {}
         self.autoscale_events: list[dict[str, Any]] = []
+        self._next_github_poll_ts: dict[str, float] = {}
+        self._scheduled_github_polls: set[str] = set()
         self.github_config: dict[str, Any] = {
             "connected": False,
             "auth_mode": "none",  # none | pat | oauth_device
@@ -409,7 +416,9 @@ class PaaSManager:
             "auto_import_env_example": True,
             "connected_at": None,
             "device_flow": None,
+            "device_flows": [],
         }
+        self._load_github_state()
 
     # ----------------------------------------------------------------
     # 1. Bancos de Dados Dedicados de 1ª Classe (Dokploy & Ployter)
@@ -1170,9 +1179,45 @@ class PaaSManager:
     # 10. Integração GitHub Automática (OAuth Device Flow / PAT / Scanner de Código e Autenticações)
     # ----------------------------------------------------------------
 
+    @staticmethod
+    def _github_state_file() -> str:
+        base_dir = getattr(settings, "REPOS_BASE_PATH", "/tmp") or "/tmp"
+        return os.path.join(base_dir, ".paas_github.json")
+
+    def _load_github_state(self) -> None:
+        if "pytest" in sys.modules:
+            return
+        path = self._github_state_file()
+        try:
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as fh:
+                    saved = json.load(fh)
+                if isinstance(saved, dict):
+                    self.github_config.update(saved)
+        except Exception as exc:
+            logger.debug("Não foi possível carregar estado GitHub salvo (%s).", exc)
+
+    def _save_github_state(self) -> None:
+        if "pytest" in sys.modules:
+            return
+        path = self._github_state_file()
+        try:
+            parent = os.path.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(self.github_config, fh, ensure_ascii=False)
+        except Exception as exc:
+            logger.debug("Não foi possível persistir estado GitHub (%s).", exc)
+
     def get_github_status(self) -> dict[str, Any]:
         out = dict(self.github_config)
         out.pop("token_encrypted", None)
+        out.pop("device_flows", None)
+        if isinstance(out.get("device_flow"), dict):
+            df = dict(out["device_flow"])
+            df.pop("device_code", None)
+            out["device_flow"] = df
         out["has_token"] = bool(self.github_config.get("token_encrypted"))
         return out
 
@@ -1265,8 +1310,11 @@ class PaaSManager:
                 "auto_import_env_example": bool(auto_import_env_example),
                 "connected_at": _now_iso(),
                 "device_flow": None,
+                "device_flows": [],
             }
         )
+        self._next_github_poll_ts.clear()
+        self._save_github_state()
 
         # Também sincroniza automaticamente o GitHub Container Registry (ghcr.io)
         try:
@@ -1302,17 +1350,29 @@ class PaaSManager:
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("user_code") and data.get("device_code"):
+                        interval = max(5, int(data.get("interval", 5) or 5))
                         flow = {
                             "user_code": data["user_code"],
                             "verification_uri": data.get(
                                 "verification_uri", "https://github.com/login/device"
                             ),
                             "device_code": data["device_code"],
+                            "client_id": cid,
                             "expires_in": data.get("expires_in", 900),
-                            "interval": data.get("interval", 5),
+                            "interval": interval,
                             "started_at": _now_iso(),
                         }
+                        existing = [
+                            f
+                            for f in (self.github_config.get("device_flows") or [])
+                            if isinstance(f, dict)
+                            and f.get("device_code")
+                            and f.get("device_code") != flow["device_code"]
+                        ]
+                        self.github_config["device_flows"] = [flow, *existing[:4]]
                         self.github_config["device_flow"] = flow
+                        self._next_github_poll_ts[flow["device_code"]] = 0.0
+                        self._save_github_state()
                         out = dict(flow)
                         out.pop("device_code", None)
                         return out
@@ -1328,39 +1388,120 @@ class PaaSManager:
 
         raise ValueError("Não foi possível iniciar o OAuth Device Flow no GitHub.")
 
+    def _schedule_delayed_github_poll(self, device_code: str, delay_seconds: float) -> None:
+        if "pytest" in sys.modules or device_code in self._scheduled_github_polls:
+            return
+        self._scheduled_github_polls.add(device_code)
+
+        async def _runner() -> None:
+            try:
+                await asyncio.sleep(max(1.0, min(delay_seconds, 300.0)))
+                if self.github_config.get("connected") and not self.github_config.get("device_flow"):
+                    return
+                await self.poll_github_device_flow()
+            except Exception as exc:
+                logger.debug("Delayed GitHub poll ignorado (%s).", exc)
+            finally:
+                self._scheduled_github_polls.discard(device_code)
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_runner())
+        except RuntimeError:
+            self._scheduled_github_polls.discard(device_code)
+
     async def poll_github_device_flow(self) -> dict[str, Any]:
         flow = self.github_config.get("device_flow")
-        if not flow or not flow.get("device_code"):
+        flows_list: list[dict[str, Any]] = []
+        if isinstance(flow, dict) and flow.get("device_code"):
+            flows_list.append(flow)
+        for f in self.github_config.get("device_flows") or []:
+            if (
+                isinstance(f, dict)
+                and f.get("device_code")
+                and all(x.get("device_code") != f.get("device_code") for x in flows_list)
+            ):
+                flows_list.append(f)
+
+        if not flows_list:
+            if self.github_config.get("connected"):
+                return {"status": "connected", "github": self.get_github_status()}
             raise ValueError("Nenhum fluxo OAuth Device ativo. Inicie o fluxo primeiro.")
-        cid = self.github_config.get("oauth_client_id") or "Iv1.b507a08c87ecfe98"
+
+        default_cid = self.github_config.get("oauth_client_id") or "Iv1.b507a08c87ecfe98"
+        is_test = "pytest" in sys.modules
+        last_status = "authorization_pending"
+        last_desc = "Aguardando autorização do código no navegador..."
 
         async with httpx.AsyncClient(timeout=12.0) as client:
-            resp = await client.post(
-                "https://github.com/login/oauth/access_token",
-                headers={"Accept": "application/json", "User-Agent": "DeployDock-PaaS/1.0"},
-                data={
-                    "client_id": cid,
-                    "device_code": flow["device_code"],
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                },
-            )
-            data = resp.json() if resp.status_code == 200 else {}
+            for item in flows_list:
+                dc = item["device_code"]
+                cid = item.get("client_id") or default_cid
+                base_interval = max(5, int(item.get("interval") or 5))
+                now = time.time()
+                next_allowed = self._next_github_poll_ts.get(dc, 0.0)
 
-        if data.get("access_token"):
-            status_obj = await self.connect_github_token(
-                token=data["access_token"],
-                auto_inject_git_token=self.github_config.get("auto_inject_git_token", True),
-                auto_create_webhook=self.github_config.get("auto_create_webhook", True),
-                auto_import_env_example=self.github_config.get("auto_import_env_example", True),
-                auth_mode="oauth_device",
-            )
-            return {"status": "connected", "github": status_obj}
+                if not is_test and now < next_allowed:
+                    remaining = max(1.0, next_allowed - now)
+                    self._schedule_delayed_github_poll(dc, remaining + 0.3)
+                    last_status = "authorization_pending"
+                    last_desc = (
+                        f"Sincronizando autorização com o GitHub (aguarde ~{int(remaining)}s)..."
+                    )
+                    continue
+
+                # Reserva janela antes da chamada para evitar chamadas concorrentes simultâneas
+                if not is_test:
+                    self._next_github_poll_ts[dc] = now + base_interval + 1.5
+
+                resp = await client.post(
+                    "https://github.com/login/oauth/access_token",
+                    headers={"Accept": "application/json", "User-Agent": "DeployDock-PaaS/1.0"},
+                    data={
+                        "client_id": cid,
+                        "device_code": dc,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    },
+                )
+                data = resp.json() if resp.status_code == 200 else {}
+
+                if data.get("access_token"):
+                    status_obj = await self.connect_github_token(
+                        token=data["access_token"],
+                        auto_inject_git_token=self.github_config.get("auto_inject_git_token", True),
+                        auto_create_webhook=self.github_config.get("auto_create_webhook", True),
+                        auto_import_env_example=self.github_config.get(
+                            "auto_import_env_example", True
+                        ),
+                        auth_mode="oauth_device",
+                    )
+                    return {"status": "connected", "github": status_obj}
+
+                err = data.get("error", "authorization_pending")
+                if err == "slow_down":
+                    new_interval = int(data.get("interval") or (base_interval + 5))
+                    item["interval"] = new_interval
+                    wait_secs = float(new_interval) + 2.0
+                    if not is_test:
+                        self._next_github_poll_ts[dc] = time.time() + wait_secs
+                        self._schedule_delayed_github_poll(dc, wait_secs + 0.5)
+                    self._save_github_state()
+                    last_status = "authorization_pending"
+                    last_desc = (
+                        f"GitHub solicitou aguardar {new_interval}s antes de concluir a vinculação..."
+                    )
+                elif err in ("expired_token", "bad_verification_code", "access_denied"):
+                    last_status = err
+                    last_desc = data.get("error_description") or "Código expirado ou recusado."
+                else:
+                    last_status = err
+                    last_desc = data.get(
+                        "error_description", "Aguardando autorização do código no navegador..."
+                    )
 
         return {
-            "status": data.get("error", "authorization_pending"),
-            "error_description": data.get(
-                "error_description", "Aguardando autorização do código no navegador..."
-            ),
+            "status": last_status,
+            "error_description": last_desc,
             "github": self.get_github_status(),
         }
 
@@ -1374,6 +1515,7 @@ class PaaSManager:
         ):
             if k in updates and updates[k] is not None:
                 self.github_config[k] = updates[k]
+        self._save_github_state()
         return self.get_github_status()
 
     def disconnect_github(self) -> dict[str, Any]:
@@ -1385,8 +1527,11 @@ class PaaSManager:
                 "scopes": [],
                 "connected_at": None,
                 "device_flow": None,
+                "device_flows": [],
             }
         )
+        self._next_github_poll_ts.clear()
+        self._save_github_state()
         return self.get_github_status()
 
     async def list_github_repos(

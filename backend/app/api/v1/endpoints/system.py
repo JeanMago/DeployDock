@@ -24,6 +24,16 @@ class NotificationConfigUpdate(BaseModel):
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     custom_webhook_url: Optional[str] = None
+    email_enabled: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+    smtp_from_name: Optional[str] = None
+    smtp_use_tls: Optional[bool] = None
+    email_recipients: Optional[str] = None
+    notify_logged_users_emails: Optional[bool] = None
     notify_on_deploy_success: Optional[bool] = None
     notify_on_deploy_failure: Optional[bool] = None
     notify_on_waf_block: Optional[bool] = None
@@ -37,6 +47,7 @@ class TestNotificationRequest(BaseModel):
     title: str = "Teste de Alerta DeployDock"
     message: str = "O sistema de notificações em tempo real do DeployDock está operacional!"
     severity: str = "info"
+    email_to: Optional[str] = None
 
 
 @router.get("/info", response_model=SystemInfo)
@@ -211,12 +222,14 @@ async def send_test_notification(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
+    extra_emails = [body.email_to.strip()] if body.email_to and body.email_to.strip() else None
     entry = await notification_manager.notify(
         event_type="test_alert",
         title=body.title,
         message=f"{body.message}\nDisparado por: {current_user.username}",
         severity=body.severity,
         force=True,
+        extra_emails=extra_emails,
     )
     security_manager.log_event(
         event_type="security_config",

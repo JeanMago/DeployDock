@@ -851,5 +851,121 @@ def test_github_integration_and_auto_code_auth_inspection(client):
     assert r_disc.json()["connected"] is False
 
 
+def test_account_oauth_git_google_admin_access_and_email_notifications(client):
+    admin_headers, _ = _auth_headers(client, username="access_admin", role="admin")
+
+    # 1. Provedores públicos OAuth na tela de Login
+    r_prov = client.get("/api/v1/auth/oauth/providers")
+    assert r_prov.status_code == 200
+    assert r_prov.json()["allow_github_login"] is True
+    assert r_prov.json()["allow_google_login"] is True
+
+    # 2. Login via Conta Git (GitHub) criando/vinculando conta automaticamente
+    r_gh_login = client.post(
+        "/api/v1/auth/oauth/github",
+        json={
+            "username": "JeanMagoGit",
+            "email": "jeanmago@github.example.com",
+            "name": "Jean Mago Git",
+        },
+    )
+    assert r_gh_login.status_code == 200
+    gh_user = r_gh_login.json()["user"]
+    gh_token = r_gh_login.json()["access_token"]
+    assert gh_user["github_linked"] is True
+    assert gh_user["github_username"] == "JeanMagoGit"
+    assert gh_user["last_login_provider"] == "github"
+
+    # 3. Login via Conta Google
+    r_gg_login = client.post(
+        "/api/v1/auth/oauth/google",
+        json={
+            "email": "jean.google@gmail.com",
+            "name": "Jean Google",
+        },
+    )
+    assert r_gg_login.status_code == 200
+    gg_user = r_gg_login.json()["user"]
+    assert gg_user["google_linked"] is True
+    assert gg_user["google_email"] == "jean.google@gmail.com"
+    assert gg_user["last_login_provider"] == "google"
+
+    # 4. Tela de Minha Conta (/api/v1/auth/account): vincular Google na conta Git (tornando-a híbrida)
+    user_headers = {"Authorization": f"Bearer {gh_token}"}
+    r_link_gg = client.post(
+        "/api/v1/auth/account/link/google",
+        json={"email": "jeanmago.linked@gmail.com", "name": "Jean Linked"},
+        headers=user_headers,
+    )
+    assert r_link_gg.status_code == 200
+    assert r_link_gg.json()["user"]["account_type"] == "hybrid"
+
+    r_acc = client.get("/api/v1/auth/account", headers=user_headers)
+    assert r_acc.status_code == 200
+    assert r_acc.json()["user"]["github_linked"] is True
+    assert r_acc.json()["user"]["google_linked"] is True
+
+    # 5. Página de Controle de Acessos & Contas Logadas para Admins (/api/v1/auth/admin/access)
+    r_adm = client.get("/api/v1/auth/admin/access", headers=admin_headers)
+    assert r_adm.status_code == 200
+    adm_data = r_adm.json()
+    assert adm_data["stats"]["github_linked_count"] >= 1
+    assert adm_data["stats"]["google_linked_count"] >= 2
+    assert len(adm_data["sessions"]) >= 2
+
+    # Admin altera políticas e nível de acesso da conta OAuth
+    r_pol = client.put(
+        "/api/v1/auth/admin/access/policies",
+        json={"default_oauth_role": "viewer", "allowed_email_domains": "*"},
+        headers=admin_headers,
+    )
+    assert r_pol.status_code == 200
+    assert r_pol.json()["policies"]["default_oauth_role"] == "viewer"
+
+    r_upd_acc = client.patch(
+        f"/api/v1/auth/admin/users/{gh_user['id']}/access",
+        json={"role": "admin", "email_notifications": True},
+        headers=admin_headers,
+    )
+    assert r_upd_acc.status_code == 200
+    assert r_upd_acc.json()["role"] == "admin"
+
+    r_rev = client.post(
+        f"/api/v1/auth/admin/users/{gh_user['id']}/revoke-sessions",
+        headers=admin_headers,
+    )
+    assert r_rev.status_code == 200
+    assert r_rev.json()["revoked_sessions"] >= 1
+
+    # 6. Notificação por E-mail na parte de Mensagens (/api/v1/system/notifications)
+    r_notif_cfg = client.put(
+        "/api/v1/system/notifications/config",
+        json={
+            "email_enabled": True,
+            "email_recipients": "alertas@deploydock.local, devops@gmail.com",
+            "notify_logged_users_emails": True,
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+        },
+        headers=admin_headers,
+    )
+    assert r_notif_cfg.status_code == 200
+    assert "email" in r_notif_cfg.json()["overview"]["channels_configured"]
+
+    r_test_notif = client.post(
+        "/api/v1/system/notifications/test",
+        json={
+            "title": "Deploy Concluído",
+            "message": "Notificação por e-mail ativa!",
+            "severity": "success",
+            "email_to": "teste@deploydock.local",
+        },
+        headers=admin_headers,
+    )
+    assert r_test_notif.status_code == 200
+    assert "email" in r_test_notif.json()["channels"]
+
+
+
 
 

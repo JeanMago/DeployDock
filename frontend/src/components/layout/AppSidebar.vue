@@ -16,6 +16,8 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  UserCheck,
+  Users,
 } from 'lucide-vue-next';
 import { useAuth } from '@/composables/useAuth';
 
@@ -51,12 +53,16 @@ const navItems = computed(() => {
   }
 
   items.push(
+    { name: 'Minha Conta', path: '/account', icon: UserCheck },
     { name: 'Segurança', path: '/security', icon: ShieldCheck },
     { name: 'Documentação', path: '/tutorial', icon: BookOpen }
   );
 
   if (isAdmin.value) {
-    items.push({ name: 'Configurações', path: '/settings', icon: Settings });
+    items.push(
+      { name: 'Acessos & Contas', path: '/admin/access', icon: Users },
+      { name: 'Configurações', path: '/settings', icon: Settings }
+    );
   }
 
   return items;

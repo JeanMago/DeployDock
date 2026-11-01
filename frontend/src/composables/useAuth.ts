@@ -15,12 +15,43 @@ export function useAuth() {
   const isDeveloper = computed(() => currentUser.value?.role === 'developer');
   const canAccessDocker = computed(() => isAdmin.value || isDeveloper.value);
 
+  const setSession = (access_token: string, user: User) => {
+    token.value = access_token;
+    currentUser.value = user;
+    localStorage.setItem('deploydock_token', access_token);
+    localStorage.setItem('deploydock_user', JSON.stringify(user));
+  };
+
   const login = async (username: string, password: string, otp_code?: string) => {
     const res = await api.auth.login({ username, password, otp_code });
-    token.value = res.access_token;
-    currentUser.value = res.user;
-    localStorage.setItem('deploydock_token', res.access_token);
-    localStorage.setItem('deploydock_user', JSON.stringify(res.user));
+    setSession(res.access_token, res.user);
+    return res;
+  };
+
+  const loginWithGithub = async (payload: {
+    token?: string;
+    username?: string;
+    email?: string;
+    name?: string;
+    avatar_url?: string;
+    use_paas_connected?: boolean;
+  }) => {
+    const res = await api.auth.loginWithGithub(payload);
+    setSession(res.access_token, res.user);
+    return res;
+  };
+
+  const loginWithGoogle = async (payload: {
+    id_token?: string;
+    access_token?: string;
+    app_password?: string;
+    email?: string;
+    name?: string;
+    picture?: string;
+    sub?: string;
+  }) => {
+    const res = await api.auth.loginWithGoogle(payload);
+    setSession(res.access_token, res.user);
     return res;
   };
 
@@ -53,6 +84,9 @@ export function useAuth() {
     isDeveloper,
     canAccessDocker,
     login,
+    loginWithGithub,
+    loginWithGoogle,
+    setSession,
     logout,
     fetchProfile,
   };

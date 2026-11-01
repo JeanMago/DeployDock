@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import {
   Database,
   Layers,
@@ -34,7 +34,33 @@ const cloudflareData = ref<any>({ config: {}, records: [] });
 const traefikData = ref<any>({ config: {}, certificates: [], active_routers: [] });
 const githubStatus = ref<GitHubIntegrationStatus | null>(null);
 const githubTokenInput = ref('');
-const githubDeviceCode = ref<{ user_code: string; verification_uri: string } | null>(null);
+const githubDeviceCode = ref<{ user_code: string; verification_uri: string; interval?: number } | null>(null);
+const githubDeviceStatusMsg = ref('');
+let paasDevicePollTimer: ReturnType<typeof setInterval> | null = null;
+
+const startPaasDevicePoll = (intervalSec = 7) => {
+  if (paasDevicePollTimer) clearInterval(paasDevicePollTimer);
+  paasDevicePollTimer = setInterval(async () => {
+    try {
+      const res = await api.paas.pollGithubDeviceFlow();
+      if (res.status === 'connected') {
+        if (paasDevicePollTimer) clearInterval(paasDevicePollTimer);
+        githubDeviceCode.value = null;
+        githubDeviceStatusMsg.value = '';
+        githubStatus.value = res.github;
+        await loadAll();
+      } else if (res.error_description) {
+        githubDeviceStatusMsg.value = res.error_description;
+      }
+    } catch {
+      // continua aguardando autorização
+    }
+  }, Math.max(7, intervalSec + 2) * 1000);
+};
+
+onUnmounted(() => {
+  if (paasDevicePollTimer) clearInterval(paasDevicePollTimer);
+});
 
 // Forms
 const newDb = ref({
@@ -146,6 +172,10 @@ const loadAll = async () => {
       Object.assign(traefikForm.value, ov.traefik.config);
     }
     githubStatus.value = ov.github || null;
+    if (ov.github && !ov.github.connected && ov.github.device_flow?.user_code) {
+      githubDeviceCode.value = ov.github.device_flow;
+      startPaasDevicePoll(ov.github.device_flow.interval || 5);
+    }
   } catch (e) {
     console.error(e);
   } finally {
@@ -282,6 +312,8 @@ const handleStartGithubDevicePaaS = async () => {
   try {
     const flow = await api.paas.startGithubDeviceFlow();
     githubDeviceCode.value = flow;
+    githubDeviceStatusMsg.value = 'Aguardando você autorizar o código no GitHub...';
+    startPaasDevicePoll(flow.interval || 5);
     try {
       await navigator.clipboard.writeText(flow.user_code);
     } catch {
@@ -306,15 +338,17 @@ const handlePollGithubDevicePaaS = async () => {
   try {
     const res = await api.paas.pollGithubDeviceFlow();
     if (res.status === 'connected') {
+      if (paasDevicePollTimer) clearInterval(paasDevicePollTimer);
       githubDeviceCode.value = null;
+      githubDeviceStatusMsg.value = '';
       githubStatus.value = res.github;
       await loadAll();
-      alert(`GitHub autorizado com sucesso como @${res.github.username}!`);
     } else {
-      alert(res.error_description || 'Ainda aguardando confirmação do código no GitHub...');
+      githubDeviceStatusMsg.value =
+        res.error_description || 'Ainda aguardando confirmação do código no GitHub...';
     }
   } catch (e: any) {
-    alert(e?.message || 'Erro ao verificar autorização.');
+    githubDeviceStatusMsg.value = e?.message || 'Erro ao verificar autorização.';
   }
 };
 
@@ -736,8 +770,12 @@ const handleDiagnose = async () => {
                   @click="handlePollGithubDevicePaaS"
                   class="px-3 py-1.5 rounded bg-dock-accent/20 border border-dock-accent/40 text-dock-accent font-medium cursor-pointer"
                 >
-                  3. Já colei e autorizei no GitHub
+                  3. Já colei e autorizei no GitHub — Atualizar Acesso
                 </button>
+              </div>
+              <div v-if="githubDeviceStatusMsg" class="text-[11px] text-dock-text-dim flex items-center gap-1.5">
+                <RefreshCw class="w-3 h-3 animate-spin text-dock-accent" />
+                {{ githubDeviceStatusMsg }}
               </div>
             </div>
           </div>

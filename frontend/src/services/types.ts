@@ -103,6 +103,13 @@ export interface GitHubIntegrationStatus {
   auto_create_webhook: boolean;
   auto_import_env_example: boolean;
   connected_at: string | null;
+  device_flow?: {
+    user_code: string;
+    verification_uri: string;
+    expires_in: number;
+    interval: number;
+    started_at?: string;
+  } | null;
 }
 
 export interface GitHubRepoItem {
@@ -378,7 +385,78 @@ export interface User {
   role: 'admin' | 'developer' | 'viewer';
   is_active: boolean;
   totp_enabled?: boolean;
+  full_name?: string;
+  avatar_url?: string;
+  account_type?: 'local' | 'github' | 'google' | 'hybrid' | string;
+  auth_providers?: string[];
+  github_linked?: boolean;
+  github_username?: string | null;
+  google_linked?: boolean;
+  google_email?: string | null;
+  email_notifications?: boolean;
+  last_login_at?: string | null;
+  last_login_provider?: string | null;
+  last_login_ip?: string | null;
+  active_sessions_count?: number;
   created_at: string;
+}
+
+export interface OAuthProvidersInfo {
+  allow_local_login: boolean;
+  allow_github_login: boolean;
+  allow_google_login: boolean;
+  auto_register_oauth: boolean;
+  github_oauth_client_id: string;
+  google_oauth_client_id: string;
+  paas_github_connected: boolean;
+  paas_github_username: string | null;
+  paas_github_avatar: string | null;
+}
+
+export interface AdminAccessPolicies {
+  allow_local_login: boolean;
+  allow_github_login: boolean;
+  allow_google_login: boolean;
+  auto_register_oauth: boolean;
+  default_oauth_role: 'admin' | 'developer' | 'viewer';
+  require_2fa_for_admins: boolean;
+  allowed_email_domains: string;
+  github_oauth_client_id: string;
+  google_oauth_client_id: string;
+}
+
+export interface LoggedSessionItem {
+  session_id: string;
+  user_id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'developer' | 'viewer';
+  provider: 'local' | 'github' | 'google' | string;
+  account_type: string;
+  ip: string;
+  user_agent: string;
+  logged_in_at: string;
+  active: boolean;
+  revoked_at?: string;
+}
+
+export interface AdminAccessOverview {
+  policies: AdminAccessPolicies;
+  stats: {
+    total_accounts: number;
+    active_accounts: number;
+    blocked_accounts: number;
+    admins_count: number;
+    developers_count: number;
+    viewers_count: number;
+    local_only_count: number;
+    github_linked_count: number;
+    google_linked_count: number;
+    hybrid_count: number;
+    active_sessions_count: number;
+  };
+  accounts: User[];
+  sessions: LoggedSessionItem[];
 }
 
 export interface TokenResponse {
@@ -419,6 +497,16 @@ export interface NotificationConfig {
   telegram_bot_token: string;
   telegram_chat_id: string;
   custom_webhook_url: string;
+  email_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password: string;
+  smtp_from_email: string;
+  smtp_from_name: string;
+  smtp_use_tls: boolean;
+  email_recipients: string;
+  notify_logged_users_emails: boolean;
   notify_on_deploy_success: boolean;
   notify_on_deploy_failure: boolean;
   notify_on_waf_block: boolean;
@@ -442,6 +530,7 @@ export interface NotificationHistoryItem {
 export interface NotificationOverview {
   config: NotificationConfig;
   channels_configured: string[];
+  resolved_email_recipients?: string[];
   history: NotificationHistoryItem[];
 }
 

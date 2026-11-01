@@ -68,7 +68,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers,
   });
 
-  if (res.status === 401 && !endpoint.includes('/auth/login')) {
+  if (res.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/oauth')) {
     localStorage.removeItem('deploydock_token');
     localStorage.removeItem('deploydock_user');
     if (window.location.pathname !== '/login') {
@@ -165,6 +165,157 @@ export const api = {
       }),
     deleteUser: (userId: string) =>
       request<{ message: string }>(`/auth/users/${userId}`, {
+        method: 'DELETE',
+      }),
+    getOAuthProviders: () =>
+      request<import('./types').OAuthProvidersInfo>('/auth/oauth/providers'),
+    startGithubOAuthDevice: (client_id?: string) =>
+      request<{
+        user_code: string;
+        verification_uri: string;
+        expires_in: number;
+        interval: number;
+      }>(`/auth/oauth/github/device/start${client_id ? `?client_id=${encodeURIComponent(client_id)}` : ''}`, {
+        method: 'POST',
+      }),
+    pollGithubOAuthDevice: () =>
+      request<{
+        status: string;
+        error_description?: string;
+        access_token?: string;
+        user?: User;
+        github?: import('./types').GitHubIntegrationStatus;
+      }>('/auth/oauth/github/device/poll', {
+        method: 'POST',
+      }),
+    startGoogleOAuthDevice: () =>
+      request<{
+        user_code: string;
+        verification_uri: string;
+        expires_in: number;
+        interval: number;
+      }>('/auth/oauth/google/device/start', {
+        method: 'POST',
+      }),
+    pollGoogleOAuthDevice: () =>
+      request<{
+        status: string;
+        error_description?: string;
+        access_token?: string;
+        user?: User;
+        google?: { email: string; name: string; picture: string; sub: string };
+      }>('/auth/oauth/google/device/poll', {
+        method: 'POST',
+      }),
+    loginWithGithub: (payload: {
+      token?: string;
+      username?: string;
+      email?: string;
+      name?: string;
+      avatar_url?: string;
+      use_paas_connected?: boolean;
+    }) =>
+      request<TokenResponse>('/auth/oauth/github', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    loginWithGoogle: (payload: {
+      id_token?: string;
+      access_token?: string;
+      app_password?: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+      sub?: string;
+    }) =>
+      request<TokenResponse>('/auth/oauth/google', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getAccount: () =>
+      request<{
+        user: User;
+        meta: Record<string, any>;
+        sessions: import('./types').LoggedSessionItem[];
+        github_paas: import('./types').GitHubIntegrationStatus;
+        policies: import('./types').AdminAccessPolicies;
+      }>('/auth/account'),
+    updateAccountProfile: (payload: {
+      full_name?: string;
+      email?: string;
+      avatar_url?: string;
+      email_notifications?: boolean;
+      notify_deploy_email?: boolean;
+      notify_security_email?: boolean;
+    }) =>
+      request<{ user: User; meta: Record<string, any> }>('/auth/account/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    linkGithubAccount: (payload: {
+      token?: string;
+      username?: string;
+      email?: string;
+      name?: string;
+      avatar_url?: string;
+      use_paas_connected?: boolean;
+    }) =>
+      request<{ user: User; meta: Record<string, any>; github_paas: import('./types').GitHubIntegrationStatus }>(
+        '/auth/account/link/github',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+    unlinkGithubAccount: () =>
+      request<{ user: User; meta: Record<string, any> }>('/auth/account/link/github', {
+        method: 'DELETE',
+      }),
+    linkGoogleAccount: (payload: {
+      id_token?: string;
+      access_token?: string;
+      app_password?: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+    }) =>
+      request<{ user: User; meta: Record<string, any> }>('/auth/account/link/google', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    unlinkGoogleAccount: () =>
+      request<{ user: User; meta: Record<string, any> }>('/auth/account/link/google', {
+        method: 'DELETE',
+      }),
+    getAdminAccessOverview: () =>
+      request<import('./types').AdminAccessOverview>('/auth/admin/access'),
+    updateAdminAccessPolicies: (payload: Partial<import('./types').AdminAccessPolicies>) =>
+      request<{ policies: import('./types').AdminAccessPolicies }>('/auth/admin/access/policies', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    adminUpdateUserAccess: (
+      userId: string,
+      payload: {
+        role?: 'admin' | 'developer' | 'viewer';
+        is_active?: boolean;
+        account_type?: string;
+        github_username?: string;
+        google_email?: string;
+        email_notifications?: boolean;
+      }
+    ) =>
+      request<User>(`/auth/admin/users/${userId}/access`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    adminRevokeUserSessions: (userId: string) =>
+      request<{ revoked_sessions: number; username: string }>(
+        `/auth/admin/users/${userId}/revoke-sessions`,
+        { method: 'POST' }
+      ),
+    adminRevokeSingleSession: (sessionId: string) =>
+      request<{ revoked: string }>(`/auth/admin/sessions/${sessionId}`, {
         method: 'DELETE',
       }),
   },
@@ -534,7 +685,7 @@ export const api = {
           body: JSON.stringify(data),
         }
       ),
-    testNotification: (payload?: { title?: string; message?: string; severity?: string }) =>
+    testNotification: (payload?: { title?: string; message?: string; severity?: string; email_to?: string }) =>
       request<NotificationHistoryItem>('/system/notifications/test', {
         method: 'POST',
         body: JSON.stringify(payload || {}),
