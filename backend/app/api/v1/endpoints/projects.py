@@ -358,6 +358,10 @@ async def create_project(
     encrypted_git_token = None
     if project_in.git_token and project_in.git_token.strip():
         encrypted_git_token = f"enc:{encrypt_value(project_in.git_token.strip())}"
+    elif "github.com" in repo_url.lower():
+        auto_gh_tok = paas_manager.get_decrypted_github_token()
+        if auto_gh_tok:
+            encrypted_git_token = f"enc:{encrypt_value(auto_gh_tok)}"
 
     db_obj = Project(
         id=project_id,
@@ -390,8 +394,44 @@ async def create_project(
         autoscale_cpu_target=project_in.autoscale_cpu_target or 75,
     )
     db.add(db_obj)
+
+    # Se foram detectadas/informadas variáveis iniciais (.env.example do GitHub), salva automaticamente
+    if project_in.initial_env_vars:
+        for item in project_in.initial_env_vars:
+            if not isinstance(item, dict):
+                continue
+            k = str(item.get("key") or "").strip()
+            if not k:
+                continue
+            v = str(item.get("value") or "")
+            is_sec = bool(item.get("is_secret", False))
+            stored_val = encrypt_value(v) if is_sec else v
+            db.add(
+                EnvironmentVariable(
+                    project_id=project_id,
+                    key=k,
+                    value=stored_val,
+                    is_secret=is_sec,
+                )
+            )
+
     await db.commit()
     await db.refresh(db_obj)
+
+    # Auto-registro de Webhook no GitHub se a integração estiver ativa
+    if (
+        "github.com" in repo_url.lower()
+        and project_in.auto_deploy
+        and paas_manager.github_config.get("auto_create_webhook", True)
+        and paas_manager.get_decrypted_github_token(force=True)
+    ):
+        webhook_target = f"{str(request.base_url).rstrip('/')}/api/v1/webhooks/github"
+        background_tasks.add_task(
+            paas_manager.create_github_repo_webhook,
+            repo_url,
+            webhook_target,
+            webhook_secret,
+        )
 
     security_manager.log_event(
         event_type="deploy",

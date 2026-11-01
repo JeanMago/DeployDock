@@ -673,4 +673,183 @@ def test_gateway_proxy_and_deployment_diagnose(client):
     assert client.get("/api/v1/deployments/00000000-0000-0000-0000-000000000000/diagnose", headers=headers).status_code == 404
 
 
+def test_github_integration_and_auto_code_auth_inspection(client):
+    from unittest.mock import AsyncMock, patch
+    import httpx
+
+    headers, _ = _auth_headers(client)
+
+    # 1. Status inicial do GitHub
+    r_st = client.get("/api/v1/paas/github", headers=headers)
+    assert r_st.status_code == 200
+    assert "connected" in r_st.json()
+
+    # 2. Conectar conta GitHub via Token (com mock da API /user do GitHub)
+    fake_user_resp = httpx.Response(
+        status_code=200,
+        headers={"x-oauth-scopes": "repo, read:user, admin:repo_hook"},
+        json={"login": "JeanMago", "name": "Jean Mago", "avatar_url": "https://avatars.githubusercontent.com/u/1"},
+    )
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_user_resp)):
+        r_conn = client.post(
+            "/api/v1/paas/github/connect",
+            json={
+                "token": "ghp_test_token_123456",
+                "auto_inject_git_token": True,
+                "auto_create_webhook": True,
+                "auto_import_env_example": True,
+            },
+            headers=headers,
+        )
+        assert r_conn.status_code == 200
+        assert r_conn.json()["connected"] is True
+        assert r_conn.json()["username"] == "JeanMago"
+        assert r_conn.json()["has_token"] is True
+
+    # 3. OAuth Device Flow (start + poll)
+    fake_device_start = httpx.Response(
+        status_code=200,
+        json={
+            "user_code": "ABCD-1234",
+            "verification_uri": "https://github.com/login/device",
+            "device_code": "dev_code_xyz",
+            "expires_in": 900,
+            "interval": 5,
+        },
+    )
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=fake_device_start)):
+        r_dev = client.post("/api/v1/paas/github/device/start", json={}, headers=headers)
+        assert r_dev.status_code == 200
+        assert r_dev.json()["user_code"] == "ABCD-1234"
+
+    fake_device_poll = httpx.Response(
+        status_code=200,
+        json={"access_token": "gho_oauth_device_token_999"},
+    )
+    with (
+        patch("httpx.AsyncClient.post", new=AsyncMock(return_value=fake_device_poll)),
+        patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_user_resp)),
+    ):
+        r_poll = client.post("/api/v1/paas/github/device/poll", headers=headers)
+        assert r_poll.status_code == 200
+        assert r_poll.json()["status"] == "connected"
+        assert r_poll.json()["github"]["auth_mode"] == "oauth_device"
+
+    # 4. Listagem de repositórios autenticados
+    fake_repos_resp = httpx.Response(
+        status_code=200,
+        json=[
+            {
+                "id": 101,
+                "name": "DeployDock",
+                "full_name": "JeanMago/DeployDock",
+                "owner": {"login": "JeanMago"},
+                "private": True,
+                "html_url": "https://github.com/JeanMago/DeployDock",
+                "clone_url": "https://github.com/JeanMago/DeployDock.git",
+                "default_branch": "main",
+                "language": "Python",
+                "description": "PaaS GitOps",
+                "updated_at": "2026-11-01T19:00:00Z",
+            }
+        ],
+    )
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_repos_resp)):
+        r_repos = client.get("/api/v1/paas/github/repos", headers=headers)
+        assert r_repos.status_code == 200
+        assert len(r_repos.json()) == 1
+        assert r_repos.json()[0]["full_name"] == "JeanMago/DeployDock"
+
+    # 5. Inspeção automática de código, branches, Dockerfile e .env.example no GitHub
+    async def _mock_github_inspect_get(url, **kwargs):
+        if url.endswith("/repos/JeanMago/DeployDock"):
+            return httpx.Response(
+                200,
+                json={
+                    "default_branch": "main",
+                    "private": True,
+                    "clone_url": "https://github.com/JeanMago/DeployDock.git",
+                    "language": "Python",
+                },
+            )
+        if "/branches" in url:
+            return httpx.Response(200, json=[{"name": "main"}, {"name": "develop"}])
+        if url.endswith("/contents?ref=main"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"name": "Dockerfile"},
+                    {"name": ".env.example"},
+                    {"name": "requirements.txt"},
+                ],
+            )
+        if "/contents/.env.example" in url:
+            return httpx.Response(
+                200,
+                text="SECRET_KEY=changeme\nAPP_PORT=8080\nDATABASE_URL=postgresql://user:pass@db:5432/app\n",
+            )
+        if "/contents/Dockerfile" in url:
+            return httpx.Response(200, text="FROM python:3.12-slim\nEXPOSE 8080\n")
+        return httpx.Response(404)
+
+    with patch("httpx.AsyncClient.get", side_effect=_mock_github_inspect_get):
+        r_insp = client.post(
+            "/api/v1/paas/github/inspect",
+            json={"repo_or_url": "https://github.com/JeanMago/DeployDock.git"},
+            headers=headers,
+        )
+        assert r_insp.status_code == 200
+        insp_data = r_insp.json()
+        assert insp_data["full_name"] == "JeanMago/DeployDock"
+        assert insp_data["detected_port"] == 8080
+        assert insp_data["env_file_found"] == ".env.example"
+        assert len(insp_data["discovered_env_vars"]) == 3
+        assert insp_data["using_saved_github_token"] is True
+
+    # 6. Criação de projeto GitHub sem passar git_token manual — herda automaticamente a credencial global e importa .env.example
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=httpx.Response(201, json={"id": 555}))):
+        r_proj = client.post(
+            "/api/v1/projects",
+            json={
+                "name": "auto-auth-gh-app",
+                "repo_url": "https://github.com/JeanMago/DeployDock.git",
+                "branch": "main",
+                "initial_env_vars": insp_data["discovered_env_vars"],
+            },
+            headers=headers,
+        )
+        assert r_proj.status_code == 200
+        assert r_proj.json()["has_git_token"] is True
+
+        r_envs = client.get(f"/api/v1/projects/{r_proj.json()['id']}/env", headers=headers)
+        assert r_envs.status_code == 200
+        assert len(r_envs.json()) == 3
+
+        r_wh = client.post(
+            "/api/v1/paas/github/webhook",
+            json={
+                "repo_or_url": "JeanMago/DeployDock",
+                "webhook_url": "http://localhost:8000/api/v1/webhooks/github",
+                "webhook_secret": "sec123",
+            },
+            headers=headers,
+        )
+        assert r_wh.status_code == 200
+        assert r_wh.json()["created"] is True
+
+    # 7. Atualizar preferências e desconectar
+    assert (
+        client.patch(
+            "/api/v1/paas/github/preferences",
+            json={"auto_create_webhook": False},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    r_disc = client.delete("/api/v1/paas/github/disconnect", headers=headers)
+    assert r_disc.status_code == 200
+    assert r_disc.json()["connected"] is False
+
+
+
 

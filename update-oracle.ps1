@@ -1,5 +1,5 @@
 # ==============================================================================
-# DeployDock — Atualizador Rápido da VM na Oracle Cloud (Windows PowerShell)
+# DeployDock - Atualizador Rapido da VM na Oracle Cloud (Windows PowerShell)
 # Uso: .\update-oracle.ps1
 # ==============================================================================
 param(
@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "  DeployDock — Atualizando Produção na Oracle ($VmIp)  " -ForegroundColor Cyan
+Write-Host "  DeployDock - Atualizando Producao na Oracle ($VmIp)  " -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
 # Localiza a chave SSH (no ~/.ssh ou na pasta Downloads)
@@ -29,11 +29,11 @@ foreach ($Key in $CandidateKeys) {
 }
 
 if (-not $SshKey) {
-    Write-Host "[ERRO] Chave SSH não encontrada em ~/.ssh/oracle_deploydock.key nem em Downloads!" -ForegroundColor Red
+    Write-Host "[ERRO] Chave SSH nao encontrada em ~/.ssh/oracle_deploydock.key nem em Downloads!" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "[1/3] Empacotando código local (preservando .env de produção)..." -ForegroundColor Yellow
+Write-Host "[1/3] Empacotando codigo local (preservando .env de producao)..." -ForegroundColor Yellow
 $TempTar = "$env:TEMP\deploydock-update.tar.gz"
 if (Test-Path $TempTar) { Remove-Item $TempTar -Force }
 
@@ -41,9 +41,11 @@ tar --exclude=".git" `
     --exclude=".env" `
     --exclude="repos" `
     --exclude="node_modules" `
+    --exclude="frontend/dist" `
     --exclude=".venv" `
     --exclude="venv" `
     --exclude=".ruff_cache" `
+    --exclude=".pytest_cache" `
     --exclude="__pycache__" `
     --exclude="deploydock.db" `
     --exclude="deploydock-benchmark-suite" `
@@ -53,8 +55,9 @@ Write-Host "[2/3] Enviando pacote via SCP para $VmUser@$VmIp..." -ForegroundColo
 scp -o StrictHostKeyChecking=no -i "$SshKey" "$TempTar" "${VmUser}@${VmIp}:~/deploydock-update.tar.gz"
 Remove-Item $TempTar -Force
 
-Write-Host "[3/3] Reconstruindo e reiniciando contêineres na VM..." -ForegroundColor Yellow
-ssh -o StrictHostKeyChecking=no -i "$SshKey" "${VmUser}@${VmIp}" "mkdir -p ~/DeployDock && tar -xzf ~/deploydock-update.tar.gz -C ~/DeployDock && rm -f ~/deploydock-update.tar.gz && cd ~/DeployDock && sed -i 's/\r$//' *.sh && chmod +x *.sh && sudo docker compose up -d --build && sudo docker image prune -f && sudo docker compose ps"
+Write-Host "[3/3] Reconstruindo e reiniciando conteineres na VM..." -ForegroundColor Yellow
+$RemoteCmd = 'mkdir -p ~/DeployDock && tar -xzf ~/deploydock-update.tar.gz -C ~/DeployDock && rm -f ~/deploydock-update.tar.gz && cd ~/DeployDock && tr -d "\r" < deploy-prod.sh > deploy-prod.sh.tmp && mv deploy-prod.sh.tmp deploy-prod.sh && chmod +x *.sh && sudo docker compose up -d --build && sudo docker image prune -f && sudo docker compose ps'
+ssh -o StrictHostKeyChecking=no -i "$SshKey" "${VmUser}@${VmIp}" $RemoteCmd
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green

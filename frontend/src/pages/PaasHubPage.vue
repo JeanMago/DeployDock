@@ -14,9 +14,10 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Github,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
-import type { Project, DeploymentDiagnosis } from '@/services/types';
+import type { Project, DeploymentDiagnosis, GitHubIntegrationStatus } from '@/services/types';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 
 const activeTab = ref<'databases' | 'templates' | 'backups' | 'crons' | 'dns_registries' | 'traefik_ai'>('databases');
@@ -31,6 +32,9 @@ const crons = ref<any[]>([]);
 const registries = ref<any[]>([]);
 const cloudflareData = ref<any>({ config: {}, records: [] });
 const traefikData = ref<any>({ config: {}, certificates: [], active_routers: [] });
+const githubStatus = ref<GitHubIntegrationStatus | null>(null);
+const githubTokenInput = ref('');
+const githubDeviceCode = ref<{ user_code: string; verification_uri: string } | null>(null);
 
 // Forms
 const newDb = ref({
@@ -141,6 +145,7 @@ const loadAll = async () => {
     if (ov.traefik?.config) {
       Object.assign(traefikForm.value, ov.traefik.config);
     }
+    githubStatus.value = ov.github || null;
   } catch (e) {
     console.error(e);
   } finally {
@@ -253,6 +258,68 @@ const handleAddRegistry = async () => {
 
 const handleDeleteRegistry = async (id: string) => {
   await api.paas.deleteRegistry(id);
+  await loadAll();
+};
+
+const handleConnectGithubPaaS = async () => {
+  if (!githubTokenInput.value.trim()) return;
+  try {
+    githubStatus.value = await api.paas.connectGithub({
+      token: githubTokenInput.value.trim(),
+      auto_inject_git_token: true,
+      auto_create_webhook: true,
+      auto_import_env_example: true,
+    });
+    githubTokenInput.value = '';
+    await loadAll();
+    alert(`Conta GitHub @${githubStatus.value.username} conectada com sucesso!`);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao conectar conta GitHub.');
+  }
+};
+
+const handleStartGithubDevicePaaS = async () => {
+  try {
+    const flow = await api.paas.startGithubDeviceFlow();
+    githubDeviceCode.value = flow;
+    try {
+      await navigator.clipboard.writeText(flow.user_code);
+    } catch {
+      // ignore
+    }
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao iniciar OAuth Device Flow.');
+  }
+};
+
+const copyAndOpenGithubDevicePaaS = async () => {
+  if (!githubDeviceCode.value) return;
+  try {
+    await navigator.clipboard.writeText(githubDeviceCode.value.user_code);
+  } catch {
+    // ignore
+  }
+  window.open(githubDeviceCode.value.verification_uri, '_blank', 'noopener,noreferrer');
+};
+
+const handlePollGithubDevicePaaS = async () => {
+  try {
+    const res = await api.paas.pollGithubDeviceFlow();
+    if (res.status === 'connected') {
+      githubDeviceCode.value = null;
+      githubStatus.value = res.github;
+      await loadAll();
+      alert(`GitHub autorizado com sucesso como @${res.github.username}!`);
+    } else {
+      alert(res.error_description || 'Ainda aguardando confirmação do código no GitHub...');
+    }
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao verificar autorização.');
+  }
+};
+
+const handleDisconnectGithubPaaS = async () => {
+  githubStatus.value = await api.paas.disconnectGithub();
   await loadAll();
 };
 
@@ -609,8 +676,103 @@ const handleDiagnose = async () => {
       </div>
     </div>
 
-    <!-- ABA 5: CLOUDFLARE DNS AUTOMÁTICO & CONTAINER REGISTRIES PRIVADOS -->
-    <div v-else-if="activeTab === 'dns_registries'" class="grid grid-cols-1 lg:grid-cols-2 gap-5 text-xs">
+    <!-- ABA 5: INTEGRAÇÃO GITHUB, CLOUDFLARE DNS AUTOMÁTICO & CONTAINER REGISTRIES PRIVADOS -->
+    <div v-else-if="activeTab === 'dns_registries'" class="space-y-5 text-xs">
+      <!-- Card Principal: Integração Automática com GitHub -->
+      <div class="glass-panel p-4 space-y-3 border border-dock-accent/30">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-semibold text-dock-text flex items-center gap-2">
+              <Github class="w-4 h-4 text-dock-accent" />
+              Integração GitHub Automática (Auto-Auth no Código, OAuth Device Flow, Auto-Webhook & `.env.example`)
+            </h3>
+            <p class="text-[11px] text-dock-text-dim mt-0.5">
+              Conecte sua conta GitHub uma vez para autenticar `git clone`/`git pull`, listar repositórios privados, registrar Webhooks e extrair variáveis `.env.example` do código automaticamente.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span
+              v-if="githubStatus?.connected"
+              class="px-2.5 py-1 rounded bg-dock-success/15 border border-dock-success/30 text-dock-success font-mono"
+            >
+              Conectado: @{{ githubStatus.username }}
+            </span>
+            <button
+              v-if="githubStatus?.connected"
+              @click="handleDisconnectGithubPaaS"
+              class="px-2.5 py-1 rounded bg-dock-error/15 border border-dock-error/30 text-dock-error cursor-pointer"
+            >
+              Desconectar
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div class="p-3 rounded bg-dock-bg border border-dock-border space-y-2.5">
+            <div class="font-medium text-dock-text">Opção A — Código OAuth no Navegador (Sem criar Token manualmente)</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                @click="handleStartGithubDevicePaaS"
+                class="bg-dock-accent hover:bg-dock-accent-hover text-white px-3 py-1.5 rounded font-medium cursor-pointer"
+              >
+                1. Gerar Código no DeployDock
+              </button>
+            </div>
+            <div v-if="githubDeviceCode" class="p-3 rounded bg-dock-surface border-2 border-dock-accent space-y-2">
+              <div class="text-[11px] text-dock-text">
+                Este é o seu código (ele <strong class="text-dock-warning">não</strong> chega no celular; copie daqui e cole na página do GitHub):
+              </div>
+              <div class="text-xl font-mono font-bold tracking-widest text-dock-accent select-all">
+                {{ githubDeviceCode.user_code }}
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  @click="copyAndOpenGithubDevicePaaS"
+                  class="px-3 py-1.5 rounded bg-dock-success text-white font-semibold cursor-pointer"
+                >
+                  2. Copiar {{ githubDeviceCode.user_code }} e Abrir GitHub
+                </button>
+                <button
+                  @click="handlePollGithubDevicePaaS"
+                  class="px-3 py-1.5 rounded bg-dock-accent/20 border border-dock-accent/40 text-dock-accent font-medium cursor-pointer"
+                >
+                  3. Já colei e autorizei no GitHub
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-3 rounded bg-dock-bg border border-dock-border space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-dock-text">Opção B — Personal Access Token (PAT Global)</span>
+              <a
+                href="https://github.com/settings/tokens/new?description=DeployDock-PaaS&scopes=repo,read:user,admin:repo_hook,read:packages"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-[11px] text-dock-accent hover:underline"
+              >
+                Criar Token no GitHub em 1 clique →
+              </a>
+            </div>
+            <div class="flex gap-2">
+              <input
+                v-model="githubTokenInput"
+                type="password"
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx ou github_pat_xxxx"
+                class="flex-1 bg-dock-surface border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+              />
+              <button
+                @click="handleConnectGithubPaaS"
+                class="bg-dock-accent hover:bg-dock-accent-hover text-white px-3.5 py-1.5 rounded font-medium cursor-pointer"
+              >
+                Conectar Token
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div class="glass-panel p-4 space-y-3">
         <h3 class="text-sm font-semibold text-dock-text flex items-center gap-2">
           <Globe class="w-4 h-4 text-dock-accent" /> Gerenciamento Automático de DNS (Cloudflare API v4)
@@ -680,6 +842,7 @@ const handleDiagnose = async () => {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
 

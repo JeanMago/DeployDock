@@ -395,6 +395,21 @@ class PaaSManager:
         }
         self.traefik_certificates: dict[str, dict[str, Any]] = {}
         self.autoscale_events: list[dict[str, Any]] = []
+        self.github_config: dict[str, Any] = {
+            "connected": False,
+            "auth_mode": "none",  # none | pat | oauth_device
+            "username": "JeanMago",
+            "name": "",
+            "avatar_url": "",
+            "scopes": [],
+            "token_encrypted": "",
+            "oauth_client_id": "",
+            "auto_inject_git_token": True,
+            "auto_create_webhook": True,
+            "auto_import_env_example": True,
+            "connected_at": None,
+            "device_flow": None,
+        }
 
     # ----------------------------------------------------------------
     # 1. Bancos de Dados Dedicados de 1ª Classe (Dokploy & Ployter)
@@ -1150,6 +1165,504 @@ class PaaSManager:
             "findings": matched_findings,
             "analyzed_at": _now_iso(),
         }
+
+    # ----------------------------------------------------------------
+    # 10. Integração GitHub Automática (OAuth Device Flow / PAT / Scanner de Código e Autenticações)
+    # ----------------------------------------------------------------
+
+    def get_github_status(self) -> dict[str, Any]:
+        out = dict(self.github_config)
+        out.pop("token_encrypted", None)
+        out["has_token"] = bool(self.github_config.get("token_encrypted"))
+        return out
+
+    def get_decrypted_github_token(self, force: bool = False) -> str | None:
+        if not force and not self.github_config.get("auto_inject_git_token", True):
+            return None
+        enc = self.github_config.get("token_encrypted") or ""
+        if not enc:
+            return None
+        raw = enc[4:] if enc.startswith("enc:") else enc
+        return decrypt_value(raw) or None
+
+    def _github_headers(self, token: str | None = None) -> dict[str, str]:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "DeployDock-PaaS/1.0",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        tok = token or self.get_decrypted_github_token(force=True)
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+        return headers
+
+    @staticmethod
+    def _parse_github_full_name(repo_or_url: str) -> str:
+        raw = (repo_or_url or "").strip()
+        if not raw:
+            raise ValueError("Informe o nome (`usuario/repo`) ou a URL do repositório GitHub.")
+        raw = re.sub(r"\.git$", "", raw, flags=re.IGNORECASE).rstrip("/")
+        m = re.search(r"github\.com[:/]([^/]+/[^/#?]+)", raw, re.IGNORECASE)
+        if m:
+            return m.group(1)
+        if "/" in raw and not raw.startswith("http"):
+            parts = [p for p in raw.split("/") if p]
+            if len(parts) >= 2:
+                return f"{parts[0]}/{parts[1]}"
+        raise ValueError(f"Não foi possível identificar `owner/repo` do GitHub em '{repo_or_url}'.")
+
+    async def connect_github_token(
+        self,
+        token: str,
+        auto_inject_git_token: bool = True,
+        auto_create_webhook: bool = True,
+        auto_import_env_example: bool = True,
+        auth_mode: str = "pat",
+    ) -> dict[str, Any]:
+        clean_token = (token or "").strip()
+        if not clean_token:
+            raise ValueError("Informe um Personal Access Token (PAT) ou OAuth Token do GitHub.")
+
+        username = self.github_config.get("username") or "github-user"
+        name = ""
+        avatar_url = ""
+        scopes: list[str] = ["repo", "read:user", "admin:repo_hook"]
+
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.get(
+                    "https://api.github.com/user",
+                    headers=self._github_headers(clean_token),
+                )
+                if resp.status_code in (401, 403):
+                    raise ValueError(
+                        "Token do GitHub inválido ou sem permissão. Gere um token com escopo `repo`."
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    username = data.get("login") or username
+                    name = data.get("name") or username
+                    avatar_url = data.get("avatar_url") or ""
+                    scope_hdr = resp.headers.get("x-oauth-scopes", "")
+                    if scope_hdr:
+                        scopes = [s.strip() for s in scope_hdr.split(",") if s.strip()]
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning("Validação online do GitHub indisponível (%s); salvando token localmente.", exc)
+
+        self.github_config.update(
+            {
+                "connected": True,
+                "auth_mode": auth_mode,
+                "username": username,
+                "name": name or username,
+                "avatar_url": avatar_url,
+                "scopes": scopes,
+                "token_encrypted": f"enc:{encrypt_value(clean_token)}",
+                "auto_inject_git_token": bool(auto_inject_git_token),
+                "auto_create_webhook": bool(auto_create_webhook),
+                "auto_import_env_example": bool(auto_import_env_example),
+                "connected_at": _now_iso(),
+                "device_flow": None,
+            }
+        )
+
+        # Também sincroniza automaticamente o GitHub Container Registry (ghcr.io)
+        try:
+            await self.add_registry(
+                name=f"GitHub Container Registry (@{username})",
+                server_address="https://ghcr.io",
+                username=username,
+                password=clean_token,
+            )
+        except Exception:
+            pass
+
+        return self.get_github_status()
+
+    async def start_github_device_flow(self, client_id: str | None = None) -> dict[str, Any]:
+        cid = (
+            client_id
+            or self.github_config.get("oauth_client_id")
+            or "Iv1.b507a08c87ecfe98"
+        ).strip()
+        self.github_config["oauth_client_id"] = cid
+
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.post(
+                    "https://github.com/login/device/code",
+                    headers={"Accept": "application/json", "User-Agent": "DeployDock-PaaS/1.0"},
+                    data={
+                        "client_id": cid,
+                        "scope": "repo read:user admin:repo_hook read:packages",
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("user_code") and data.get("device_code"):
+                        flow = {
+                            "user_code": data["user_code"],
+                            "verification_uri": data.get(
+                                "verification_uri", "https://github.com/login/device"
+                            ),
+                            "device_code": data["device_code"],
+                            "expires_in": data.get("expires_in", 900),
+                            "interval": data.get("interval", 5),
+                            "started_at": _now_iso(),
+                        }
+                        self.github_config["device_flow"] = flow
+                        out = dict(flow)
+                        out.pop("device_code", None)
+                        return out
+                    raise ValueError(
+                        data.get("error_description")
+                        or "GitHub OAuth App não retornou código de dispositivo."
+                    )
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning("Device Flow GitHub falhou (%s).", exc)
+            raise ValueError(f"Erro ao iniciar Device Flow no GitHub: {exc}") from exc
+
+        raise ValueError("Não foi possível iniciar o OAuth Device Flow no GitHub.")
+
+    async def poll_github_device_flow(self) -> dict[str, Any]:
+        flow = self.github_config.get("device_flow")
+        if not flow or not flow.get("device_code"):
+            raise ValueError("Nenhum fluxo OAuth Device ativo. Inicie o fluxo primeiro.")
+        cid = self.github_config.get("oauth_client_id") or "Iv1.b507a08c87ecfe98"
+
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                "https://github.com/login/oauth/access_token",
+                headers={"Accept": "application/json", "User-Agent": "DeployDock-PaaS/1.0"},
+                data={
+                    "client_id": cid,
+                    "device_code": flow["device_code"],
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                },
+            )
+            data = resp.json() if resp.status_code == 200 else {}
+
+        if data.get("access_token"):
+            status_obj = await self.connect_github_token(
+                token=data["access_token"],
+                auto_inject_git_token=self.github_config.get("auto_inject_git_token", True),
+                auto_create_webhook=self.github_config.get("auto_create_webhook", True),
+                auto_import_env_example=self.github_config.get("auto_import_env_example", True),
+                auth_mode="oauth_device",
+            )
+            return {"status": "connected", "github": status_obj}
+
+        return {
+            "status": data.get("error", "authorization_pending"),
+            "error_description": data.get(
+                "error_description", "Aguardando autorização do código no navegador..."
+            ),
+            "github": self.get_github_status(),
+        }
+
+    def update_github_preferences(self, updates: dict[str, Any]) -> dict[str, Any]:
+        for k in (
+            "username",
+            "oauth_client_id",
+            "auto_inject_git_token",
+            "auto_create_webhook",
+            "auto_import_env_example",
+        ):
+            if k in updates and updates[k] is not None:
+                self.github_config[k] = updates[k]
+        return self.get_github_status()
+
+    def disconnect_github(self) -> dict[str, Any]:
+        self.github_config.update(
+            {
+                "connected": False,
+                "auth_mode": "none",
+                "token_encrypted": "",
+                "scopes": [],
+                "connected_at": None,
+                "device_flow": None,
+            }
+        )
+        return self.get_github_status()
+
+    async def list_github_repos(
+        self, username: str | None = None, per_page: int = 50
+    ) -> list[dict[str, Any]]:
+        tok = self.get_decrypted_github_token(force=True)
+        clean_user = (username or "").strip()
+        if clean_user:
+            self.github_config["username"] = clean_user
+
+        if tok and not clean_user:
+            url = f"https://api.github.com/user/repos?sort=updated&per_page={min(per_page, 100)}&affiliation=owner,collaborator,organization_member"
+        else:
+            target_user = clean_user or self.github_config.get("username") or "JeanMago"
+            url = f"https://api.github.com/users/{target_user}/repos?sort=updated&per_page={min(per_page, 100)}"
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, headers=self._github_headers(tok))
+                if resp.status_code != 200:
+                    return []
+                items = resp.json()
+        except Exception as exc:
+            logger.warning("Falha ao listar repositórios do GitHub (%s).", exc)
+            return []
+
+        repos: list[dict[str, Any]] = []
+        for r in items if isinstance(items, list) else []:
+            repos.append(
+                {
+                    "id": r.get("id"),
+                    "name": r.get("name"),
+                    "full_name": r.get("full_name"),
+                    "owner": (r.get("owner") or {}).get("login", ""),
+                    "private": bool(r.get("private", False)),
+                    "html_url": r.get("html_url"),
+                    "clone_url": r.get("clone_url"),
+                    "default_branch": r.get("default_branch") or "main",
+                    "language": r.get("language") or "Auto",
+                    "description": r.get("description") or "",
+                    "updated_at": r.get("updated_at"),
+                }
+            )
+        return repos
+
+    @staticmethod
+    def _parse_env_example_content(raw_text: str) -> list[dict[str, Any]]:
+        secret_keywords = (
+            "SECRET",
+            "TOKEN",
+            "PASSWORD",
+            "PASS",
+            "KEY",
+            "AUTH",
+            "WEBHOOK",
+            "CLIENT_ID",
+            "DATABASE_URL",
+            "REDIS_URL",
+            "PRIVATE",
+            "JWT",
+        )
+        discovered: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for line in (raw_text or "").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("export "):
+                stripped = stripped[7:].strip()
+            if "=" not in stripped:
+                continue
+            k, v = stripped.split("=", 1)
+            key = k.strip()
+            val = v.strip().strip('"').strip("'")
+            if not key or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key) or key in seen:
+                continue
+            seen.add(key)
+            is_secret = any(sk in key.upper() for sk in secret_keywords)
+            discovered.append(
+                {
+                    "key": key,
+                    "value": val,
+                    "is_secret": is_secret,
+                }
+            )
+        return discovered
+
+    async def inspect_github_repo(
+        self, repo_or_url: str, branch: str | None = None
+    ) -> dict[str, Any]:
+        full_name = self._parse_github_full_name(repo_or_url)
+        tok = self.get_decrypted_github_token(force=True)
+        headers = self._github_headers(tok)
+
+        default_branch = branch or "main"
+        is_private = False
+        clone_url = f"https://github.com/{full_name}.git"
+        language = "Auto"
+        branches: list[str] = []
+        root_files: list[str] = []
+        env_file_found: str | None = None
+        discovered_env_vars: list[dict[str, Any]] = []
+        detected_port: int | None = None
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Metadados do repositório
+            try:
+                r_meta = await client.get(
+                    f"https://api.github.com/repos/{full_name}", headers=headers
+                )
+                if r_meta.status_code == 200:
+                    meta = r_meta.json()
+                    default_branch = branch or meta.get("default_branch") or "main"
+                    is_private = bool(meta.get("private", False))
+                    clone_url = meta.get("clone_url") or clone_url
+                    language = meta.get("language") or language
+            except Exception:
+                pass
+
+            # 2. Lista de branches
+            try:
+                r_br = await client.get(
+                    f"https://api.github.com/repos/{full_name}/branches?per_page=30",
+                    headers=headers,
+                )
+                if r_br.status_code == 200 and isinstance(r_br.json(), list):
+                    branches = [b.get("name") for b in r_br.json() if b.get("name")]
+            except Exception:
+                pass
+
+            if default_branch not in branches:
+                branches.insert(0, default_branch)
+
+            # 3. Arquivos na raiz do repositório
+            try:
+                r_contents = await client.get(
+                    f"https://api.github.com/repos/{full_name}/contents?ref={default_branch}",
+                    headers=headers,
+                )
+                if r_contents.status_code == 200 and isinstance(r_contents.json(), list):
+                    root_files = [
+                        item.get("name", "")
+                        for item in r_contents.json()
+                        if isinstance(item, dict) and item.get("name")
+                    ]
+            except Exception:
+                pass
+
+            # 4. Inspeciona .env.example / .env.sample / .env.template para buscar chaves e autenticações do código
+            env_candidates = [".env.example", ".env.sample", ".env.template", ".env.dist", ".env.local.example"]
+            for candidate in env_candidates:
+                if candidate in root_files:
+                    try:
+                        r_env = await client.get(
+                            f"https://api.github.com/repos/{full_name}/contents/{candidate}?ref={default_branch}",
+                            headers={**headers, "Accept": "application/vnd.github.raw+json"},
+                        )
+                        if r_env.status_code == 200 and r_env.text:
+                            env_file_found = candidate
+                            discovered_env_vars = self._parse_env_example_content(r_env.text)
+                            break
+                    except Exception:
+                        pass
+
+            # 5. Inspeciona Dockerfile para detectar EXPOSE <porta>
+            if "Dockerfile" in root_files:
+                try:
+                    r_df = await client.get(
+                        f"https://api.github.com/repos/{full_name}/contents/Dockerfile?ref={default_branch}",
+                        headers={**headers, "Accept": "application/vnd.github.raw+json"},
+                    )
+                    if r_df.status_code == 200 and r_df.text:
+                        m_port = re.search(r"^\s*EXPOSE\s+(\d+)", r_df.text, re.MULTILINE | re.IGNORECASE)
+                        if m_port:
+                            detected_port = int(m_port.group(1))
+                except Exception:
+                    pass
+
+        # Determina stack / builder automaticamente a partir dos arquivos
+        files_lower = {f.lower() for f in root_files}
+        has_dockerfile = "dockerfile" in files_lower
+        has_compose = "docker-compose.yml" in files_lower or "docker-compose.yaml" in files_lower or "compose.yaml" in files_lower
+
+        if has_dockerfile:
+            detected_stack = "Dockerfile Nativo"
+        elif has_compose:
+            detected_stack = "Docker Compose"
+        elif "bun.lockb" in files_lower or "bunfig.toml" in files_lower:
+            detected_stack = "Bun (Zero-Config)"
+            detected_port = detected_port or 3000
+        elif "package.json" in files_lower:
+            detected_stack = "Node.js / TypeScript (Zero-Config)"
+            detected_port = detected_port or 3000
+        elif "requirements.txt" in files_lower or "pyproject.toml" in files_lower or "pipfile" in files_lower:
+            detected_stack = "Python (Zero-Config)"
+            detected_port = detected_port or 8000
+        elif "go.mod" in files_lower:
+            detected_stack = "Go / Golang (Zero-Config)"
+            detected_port = detected_port or 8080
+        elif "cargo.toml" in files_lower:
+            detected_stack = "Rust (Zero-Config)"
+            detected_port = detected_port or 8080
+        elif "composer.json" in files_lower or "index.php" in files_lower:
+            detected_stack = "PHP / Laravel (Zero-Config)"
+            detected_port = detected_port or 80
+        elif "gemfile" in files_lower:
+            detected_stack = "Ruby / Rails (Zero-Config)"
+            detected_port = detected_port or 3000
+        elif "pom.xml" in files_lower or "build.gradle" in files_lower or "build.gradle.kts" in files_lower:
+            detected_stack = "Java Maven/Gradle (Zero-Config)"
+            detected_port = detected_port or 8080
+        elif "index.html" in files_lower:
+            detected_stack = "Site Estático HTML/Nginx (Zero-Config)"
+            detected_port = detected_port or 80
+        else:
+            detected_stack = f"{language} (Auto-Builder)"
+
+        repo_short_name = full_name.split("/")[-1]
+        return {
+            "full_name": full_name,
+            "name": repo_short_name,
+            "clone_url": clone_url,
+            "private": is_private,
+            "default_branch": default_branch,
+            "branches": branches,
+            "language": language,
+            "detected_stack": detected_stack,
+            "has_dockerfile": has_dockerfile,
+            "has_compose": has_compose,
+            "detected_port": detected_port,
+            "root_files": root_files,
+            "env_file_found": env_file_found,
+            "discovered_env_vars": discovered_env_vars,
+            "auth_ready": (not is_private) or bool(tok),
+            "using_saved_github_token": bool(tok),
+        }
+
+    async def create_github_repo_webhook(
+        self, repo_or_url: str, webhook_url: str, webhook_secret: str
+    ) -> dict[str, Any]:
+        full_name = self._parse_github_full_name(repo_or_url)
+        tok = self.get_decrypted_github_token(force=True)
+        if not tok:
+            return {
+                "created": False,
+                "reason": "Nenhum token GitHub conectado para criar o webhook automaticamente.",
+            }
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{full_name}/hooks",
+                    headers=self._github_headers(tok),
+                    json={
+                        "name": "web",
+                        "active": True,
+                        "events": ["push", "pull_request"],
+                        "config": {
+                            "url": webhook_url,
+                            "content_type": "json",
+                            "secret": webhook_secret,
+                            "insecure_ssl": "0",
+                        },
+                    },
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    return {"created": True, "hook_id": data.get("id"), "full_name": full_name}
+                if resp.status_code == 422:
+                    return {"created": True, "already_exists": True, "full_name": full_name}
+                return {
+                    "created": False,
+                    "status_code": resp.status_code,
+                    "detail": resp.text[:200],
+                }
+        except Exception as exc:
+            return {"created": False, "reason": str(exc)}
 
 
 paas_manager = PaaSManager()

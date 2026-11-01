@@ -36,14 +36,22 @@ logger = logging.getLogger(__name__)
 
 def _extract_git_token(project: Project) -> str | None:
     raw = getattr(project, "git_token", None)
-    if not raw or not raw.strip():
-        return None
-    if raw.startswith("enc:"):
+    if raw and raw.strip():
+        if raw.startswith("enc:"):
+            try:
+                return decrypt_value(raw[4:])
+            except Exception:
+                return None
+        return raw.strip()
+    repo_url = (getattr(project, "repo_url", "") or "").lower()
+    if "github.com" in repo_url:
         try:
-            return decrypt_value(raw[4:])
+            from app.services.paas_service import paas_manager
+
+            return paas_manager.get_decrypted_github_token()
         except Exception:
             return None
-    return raw.strip()
+    return None
 
 
 def _ensure_auto_dockerfile(repo_path: str, dockerfile_rel_path: str) -> None:

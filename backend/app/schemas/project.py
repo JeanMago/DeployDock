@@ -52,6 +52,7 @@ class ProjectCreate(RoutingFieldsMixin, ProjectBase):
     template: Optional[str] = None
     dockerfile_content: Optional[str] = None
     git_token: Optional[str] = None
+    initial_env_vars: Optional[list[dict]] = None
 
 
 class ProjectUpdate(RoutingFieldsMixin, BaseModel):

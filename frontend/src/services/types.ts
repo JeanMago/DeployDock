@@ -87,6 +87,55 @@ export interface ProjectCreate {
   autoscale_min_replicas?: number | null;
   autoscale_max_replicas?: number | null;
   autoscale_cpu_target?: number | null;
+  initial_env_vars?: { key: string; value: string; is_secret: boolean }[];
+}
+
+export interface GitHubIntegrationStatus {
+  connected: boolean;
+  auth_mode: 'none' | 'pat' | 'oauth_device' | string;
+  username: string;
+  name: string;
+  avatar_url: string;
+  scopes: string[];
+  has_token: boolean;
+  oauth_client_id: string;
+  auto_inject_git_token: boolean;
+  auto_create_webhook: boolean;
+  auto_import_env_example: boolean;
+  connected_at: string | null;
+}
+
+export interface GitHubRepoItem {
+  id: number;
+  name: string;
+  full_name: string;
+  owner: string;
+  private: boolean;
+  html_url: string;
+  clone_url: string;
+  default_branch: string;
+  language: string;
+  description: string;
+  updated_at: string;
+}
+
+export interface GitHubRepoInspection {
+  full_name: string;
+  name: string;
+  clone_url: string;
+  private: boolean;
+  default_branch: string;
+  branches: string[];
+  language: string;
+  detected_stack: string;
+  has_dockerfile: boolean;
+  has_compose: boolean;
+  detected_port: number | null;
+  root_files: string[];
+  env_file_found: string | null;
+  discovered_env_vars: { key: string; value: string; is_secret: boolean }[];
+  auth_ready: boolean;
+  using_saved_github_token: boolean;
 }
 
 export interface RoutingConfig {

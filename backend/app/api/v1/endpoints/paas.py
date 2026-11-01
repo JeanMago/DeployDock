@@ -129,6 +129,36 @@ class AutoscaleEvaluateRequest(BaseModel):
     simulated_cpu_by_project: Optional[dict[str, float]] = None
 
 
+class GitHubConnectRequest(BaseModel):
+    token: str
+    auto_inject_git_token: bool = True
+    auto_create_webhook: bool = True
+    auto_import_env_example: bool = True
+
+
+class GitHubDeviceStartRequest(BaseModel):
+    client_id: Optional[str] = None
+
+
+class GitHubPreferencesUpdateRequest(BaseModel):
+    username: Optional[str] = None
+    oauth_client_id: Optional[str] = None
+    auto_inject_git_token: Optional[bool] = None
+    auto_create_webhook: Optional[bool] = None
+    auto_import_env_example: Optional[bool] = None
+
+
+class GitHubRepoInspectRequest(BaseModel):
+    repo_or_url: str
+    branch: Optional[str] = None
+
+
+class GitHubWebhookCreateRequest(BaseModel):
+    repo_or_url: str
+    webhook_url: str
+    webhook_secret: str
+
+
 # ----------------------------------------------------------------
 # Visão Geral PaaS
 # ----------------------------------------------------------------
@@ -145,6 +175,7 @@ async def get_paas_overview(docker: DockerService = Depends(get_docker_service))
         "registries": paas_manager.list_registries(),
         "cloudflare": paas_manager.get_cloudflare_overview(),
         "traefik": traefik,
+        "github": paas_manager.get_github_status(),
         "autoscale_events": paas_manager.autoscale_events[:30],
     }
 
@@ -691,3 +722,112 @@ async def evaluate_autoscaling(
         "scaled_actions": actions,
         "history": paas_manager.autoscale_events[:20],
     }
+
+
+# ----------------------------------------------------------------
+# 10. Integração GitHub Automática (Auto-Auth, OAuth Device Flow, Repositórios & Scanner de Código)
+# ----------------------------------------------------------------
+
+
+@router.get("/github")
+async def get_github_integration_status():
+    """Retorna o status da integração global com o GitHub."""
+    return paas_manager.get_github_status()
+
+
+@router.post("/github/connect", dependencies=[Depends(require_role("admin", "developer"))])
+async def connect_github_account(body: GitHubConnectRequest, request: Request):
+    """
+    Conecta uma conta GitHub globalmente via Token PAT ou OAuth, buscando automaticamente
+    o perfil, escopos e habilitando injeção automática de credenciais nos deploys.
+    """
+    try:
+        res = await paas_manager.connect_github_token(
+            token=body.token,
+            auto_inject_git_token=body.auto_inject_git_token,
+            auto_create_webhook=body.auto_create_webhook,
+            auto_import_env_example=body.auto_import_env_example,
+        )
+        security_manager.log_event(
+            event_type="paas_github_connected",
+            severity="low",
+            ip=request.client.host if request.client else "unknown",
+            path=request.url.path,
+            detail=f"Conta GitHub conectada: @{res.get('username')}",
+        )
+        return res
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/github/device/start", dependencies=[Depends(require_role("admin", "developer"))])
+async def start_github_oauth_device_flow(body: Optional[GitHubDeviceStartRequest] = None):
+    """Inicia o fluxo OAuth Device do GitHub (`https://github.com/login/device`)."""
+    try:
+        return await paas_manager.start_github_device_flow(
+            client_id=body.client_id if body else None
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/github/device/poll", dependencies=[Depends(require_role("admin", "developer"))])
+async def poll_github_oauth_device_flow():
+    """Verifica se o usuário concluiu a autorização do código no GitHub e salva o token automaticamente."""
+    try:
+        return await paas_manager.poll_github_device_flow()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/github/preferences", dependencies=[Depends(require_role("admin", "developer"))])
+async def update_github_integration_preferences(body: GitHubPreferencesUpdateRequest):
+    """Atualiza preferências de automação da integração GitHub."""
+    return paas_manager.update_github_preferences(body.model_dump(exclude_none=True))
+
+
+@router.delete("/github/disconnect", dependencies=[Depends(require_role("admin", "developer"))])
+async def disconnect_github_account():
+    """Remove o token global do GitHub."""
+    return paas_manager.disconnect_github()
+
+
+@router.get("/github/repos")
+async def list_github_repositories(
+    username: Optional[str] = Query(default=None),
+    per_page: int = Query(default=50, ge=1, le=100),
+):
+    """Lista os repositórios públicos e privados da conta GitHub conectada (ou de um usuário informado)."""
+    return await paas_manager.list_github_repos(username=username, per_page=per_page)
+
+
+@router.post("/github/inspect")
+async def inspect_github_repository(body: GitHubRepoInspectRequest):
+    """
+    Inspeciona automaticamente um repositório do GitHub para detectar:
+    - Branches disponíveis e branch padrão
+    - Stack/Linguagem e presença de Dockerfile ou docker-compose.yml
+    - Porta exposta (`EXPOSE`)
+    - Variáveis de ambiente e chaves de autenticação exigidas pelo código (`.env.example`, `.env.sample`, etc.)
+    """
+    try:
+        return await paas_manager.inspect_github_repo(
+            repo_or_url=body.repo_or_url,
+            branch=body.branch,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/github/webhook", dependencies=[Depends(require_role("admin", "developer"))])
+async def create_github_repository_webhook(body: GitHubWebhookCreateRequest):
+    """Registra automaticamente o Webhook do DeployDock no repositório GitHub."""
+    try:
+        return await paas_manager.create_github_repo_webhook(
+            repo_or_url=body.repo_or_url,
+            webhook_url=body.webhook_url,
+            webhook_secret=body.webhook_secret,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+

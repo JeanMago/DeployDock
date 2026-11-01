@@ -1,10 +1,31 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
-  X, Plus, Github, Layers, Code, Sparkles, Check, Copy, Rocket, Folder, Lock, Cpu
+  X,
+  Plus,
+  Github,
+  Layers,
+  Code,
+  Sparkles,
+  Check,
+  Copy,
+  Rocket,
+  Folder,
+  Lock,
+  Cpu,
+  RefreshCw,
+  ExternalLink,
+  KeyRound,
+  Search,
+  CheckCircle2,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
-import type { ProjectCreate } from '@/services/types';
+import type {
+  ProjectCreate,
+  GitHubIntegrationStatus,
+  GitHubRepoItem,
+  GitHubRepoInspection,
+} from '@/services/types';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -21,6 +42,7 @@ const form = ref({
   repo_url: '',
   branch: 'main',
   git_token: '',
+  container_port: undefined as number | undefined,
   dockerfile_path: 'Dockerfile',
   docker_compose_path: 'docker-compose.yml',
   auto_deploy: true,
@@ -41,6 +63,29 @@ const error = ref('');
 const copiedWebhook = ref(false);
 const copiedSecret = ref(false);
 
+// Estado da Integração Automática com GitHub
+const ghStatus = ref<GitHubIntegrationStatus | null>(null);
+const ghRepos = ref<GitHubRepoItem[]>([]);
+const ghReposLoading = ref(false);
+const ghSearchQuery = ref('');
+const ghAccountFilter = ref('');
+const ghQuickToken = ref('');
+const showGhConnectBox = ref(false);
+const ghDeviceFlow = ref<{
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+} | null>(null);
+const ghDevicePolling = ref(false);
+const copiedDeviceCode = ref(false);
+let devicePollTimer: ReturnType<typeof setInterval> | null = null;
+
+// Resultado da Inspeção Automática do Código no GitHub
+const repoInspection = ref<GitHubRepoInspection | null>(null);
+const inspectingRepo = ref(false);
+const discoveredEnvVars = ref<{ key: string; value: string; is_secret: boolean }[]>([]);
+
 function generateSecret(): string {
   const chars = 'abcdef0123456789';
   let str = '';
@@ -53,6 +98,145 @@ function generateSecret(): string {
 const webhookUrl = computed(() => {
   return `${window.location.origin}/api/v1/webhooks/github`;
 });
+
+const filteredGhRepos = computed(() => {
+  const q = ghSearchQuery.value.trim().toLowerCase();
+  if (!q) return ghRepos.value;
+  return ghRepos.value.filter(
+    (r) =>
+      r.name.toLowerCase().includes(q) ||
+      r.full_name.toLowerCase().includes(q) ||
+      (r.language || '').toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q)
+  );
+});
+
+const loadGithubIntegration = async (customUser?: string) => {
+  ghReposLoading.value = true;
+  try {
+    const st = await api.paas.githubStatus();
+    ghStatus.value = st;
+    if (!ghAccountFilter.value && st.username) {
+      ghAccountFilter.value = st.username;
+    }
+    ghRepos.value = await api.paas.listGithubRepos(customUser);
+  } catch {
+    // ignore
+  } finally {
+    ghReposLoading.value = false;
+  }
+};
+
+onMounted(() => {
+  loadGithubIntegration();
+});
+
+onUnmounted(() => {
+  if (devicePollTimer) clearInterval(devicePollTimer);
+});
+
+watch(mode, (newMode) => {
+  if (newMode === 'git' && ghRepos.value.length === 0) {
+    loadGithubIntegration();
+  }
+});
+
+const handleConnectGithubToken = async () => {
+  if (!ghQuickToken.value.trim()) return;
+  ghReposLoading.value = true;
+  try {
+    ghStatus.value = await api.paas.connectGithub({
+      token: ghQuickToken.value.trim(),
+      auto_inject_git_token: true,
+      auto_create_webhook: true,
+      auto_import_env_example: true,
+    });
+    ghQuickToken.value = '';
+    showGhConnectBox.value = false;
+    ghRepos.value = await api.paas.listGithubRepos();
+  } catch (e: any) {
+    error.value = e?.message || 'Erro ao autenticar token no GitHub.';
+  } finally {
+    ghReposLoading.value = false;
+  }
+};
+
+const handleStartDeviceFlow = async () => {
+  error.value = '';
+  try {
+    const flow = await api.paas.startGithubDeviceFlow();
+    ghDeviceFlow.value = flow;
+    ghDevicePolling.value = true;
+    try {
+      await navigator.clipboard.writeText(flow.user_code);
+      copiedDeviceCode.value = true;
+    } catch {
+      // ignore clipboard error
+    }
+
+    if (devicePollTimer) clearInterval(devicePollTimer);
+    devicePollTimer = setInterval(async () => {
+      try {
+        const res = await api.paas.pollGithubDeviceFlow();
+        if (res.status === 'connected') {
+          if (devicePollTimer) clearInterval(devicePollTimer);
+          ghDevicePolling.value = false;
+          ghDeviceFlow.value = null;
+          showGhConnectBox.value = false;
+          ghStatus.value = res.github;
+          ghRepos.value = await api.paas.listGithubRepos();
+        }
+      } catch {
+        // continúa aguardando autorização
+      }
+    }, Math.max(5, flow.interval || 5) * 1000);
+  } catch (e: any) {
+    error.value = e?.message || 'Falha ao iniciar autenticação OAuth Device no GitHub.';
+  }
+};
+
+const copyAndOpenGithubDevice = async () => {
+  if (!ghDeviceFlow.value) return;
+  try {
+    await navigator.clipboard.writeText(ghDeviceFlow.value.user_code);
+    copiedDeviceCode.value = true;
+  } catch {
+    // ignore
+  }
+  window.open(ghDeviceFlow.value.verification_uri, '_blank', 'noopener,noreferrer');
+};
+
+const selectGithubRepo = async (repo: GitHubRepoItem) => {
+  form.value.repo_url = repo.clone_url;
+  form.value.branch = repo.default_branch || 'main';
+  if (!form.value.name.trim()) {
+    form.value.name = repo.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  }
+  await inspectRepositoryCode(repo.full_name, repo.default_branch);
+};
+
+const inspectRepositoryCode = async (targetRepo?: string, targetBranch?: string) => {
+  const repoRef = (targetRepo || form.value.repo_url || '').trim();
+  if (!repoRef) return;
+  inspectingRepo.value = true;
+  try {
+    const info = await api.paas.inspectGithubRepo(repoRef, targetBranch || form.value.branch);
+    repoInspection.value = info;
+    form.value.repo_url = info.clone_url || form.value.repo_url;
+    form.value.branch = info.default_branch || form.value.branch;
+    if (!form.value.name.trim() && info.name) {
+      form.value.name = info.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    }
+    if (info.detected_port && !form.value.container_port) {
+      form.value.container_port = info.detected_port;
+    }
+    discoveredEnvVars.value = (info.discovered_env_vars || []).map((v) => ({ ...v }));
+  } catch (e: any) {
+    console.warn('Falha ao inspecionar repositório:', e);
+  } finally {
+    inspectingRepo.value = false;
+  }
+};
 
 const copyToClipboard = (text: string, type: 'url' | 'secret') => {
   navigator.clipboard.writeText(text);
@@ -124,7 +308,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
   }
 
   if (mode.value === 'git' && !form.value.repo_url.trim()) {
-    error.value = 'Por favor, informe a URL do repositório Git.';
+    error.value = 'Por favor, selecione ou informe a URL do repositório Git.';
     return;
   }
 
@@ -137,6 +321,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       subdomain: form.value.subdomain.trim() || undefined,
       custom_domain: form.value.custom_domain.trim() || undefined,
       branch: form.value.branch.trim() || 'main',
+      container_port: form.value.container_port ? Number(form.value.container_port) : undefined,
       dockerfile_path: form.value.dockerfile_path || 'Dockerfile',
       docker_compose_path: form.value.docker_compose_path || 'docker-compose.yml',
       auto_deploy: form.value.auto_deploy,
@@ -157,6 +342,9 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       payload.repo_url = form.value.repo_url.trim();
       if (form.value.git_token.trim()) {
         payload.git_token = form.value.git_token.trim();
+      }
+      if (discoveredEnvVars.value.length > 0) {
+        payload.initial_env_vars = discoveredEnvVars.value.filter((item) => item.key.trim());
       }
     }
 
@@ -181,7 +369,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-    <div class="glass-panel w-full max-w-2xl bg-dock-bg/95 border border-dock-border-light shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div class="glass-panel w-full max-w-2xl bg-dock-bg/95 border border-dock-border-light shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[92vh]">
       <!-- Cabeçalho -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-dock-border bg-dock-surface/40">
         <div>
@@ -189,7 +377,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <Plus class="w-5 h-5 text-dock-accent" /> Novo Projeto
           </h3>
           <p class="text-xs text-dock-text-dim mt-0.5">
-            Crie um projeto 1-Click ou conecte seu repositório Git (público ou privado) com Quotas de CPU/RAM e Auto-Healing.
+            Crie um projeto 1-Click ou conecte seu GitHub com busca automática de repositórios, branches e variáveis de código
           </p>
         </div>
         <button
@@ -214,7 +402,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <button
               type="button"
               @click="mode = 'template'"
-              class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all"
+              class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer"
               :class="
                 mode === 'template'
                   ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm'
@@ -233,7 +421,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <button
               type="button"
               @click="mode = 'git'"
-              class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all"
+              class="flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer"
               :class="
                 mode === 'git'
                   ? 'bg-dock-accent/10 border-dock-accent text-dock-text shadow-sm'
@@ -244,10 +432,256 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
                 <Github class="w-5 h-5" />
               </div>
               <div>
-                <div class="text-sm font-semibold text-dock-text">Repositório Git (Público/Privado)</div>
-                <div class="text-xs text-dock-text-dim">Clona do GitHub/GitLab + Preview Environments</div>
+                <div class="text-sm font-semibold text-dock-text">Integração GitHub / Git</div>
+                <div class="text-xs text-dock-text-dim">Busca automática de repos, autenticações e `.env`</div>
               </div>
             </button>
+          </div>
+        </div>
+
+        <!-- Modo 2: Integração Automática com GitHub (Exibida no topo quando modo === 'git') -->
+        <div v-if="mode === 'git'" class="p-4 rounded-xl bg-dock-surface/50 border border-dock-accent/30 space-y-3.5 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <Github class="w-4 h-4 text-dock-accent" />
+              <span class="font-semibold text-dock-text">Integração GitHub Automática</span>
+              <span
+                v-if="ghStatus?.connected"
+                class="px-2 py-0.5 rounded bg-dock-success/15 border border-dock-success/30 text-dock-success font-mono text-[10px] flex items-center gap-1"
+              >
+                <CheckCircle2 class="w-3 h-3" /> @{{ ghStatus.username }} Conectado (Auto-Auth Ativo)
+              </span>
+              <span
+                v-else
+                class="px-2 py-0.5 rounded bg-dock-bg border border-dock-border text-dock-text-dim font-mono text-[10px]"
+              >
+                Modo Público (@{{ ghAccountFilter || 'JeanMago' }})
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                @click="showGhConnectBox = !showGhConnectBox"
+                class="px-2.5 py-1 rounded bg-dock-accent/15 hover:bg-dock-accent/25 border border-dock-accent/30 text-dock-accent font-medium cursor-pointer"
+              >
+                {{ ghStatus?.connected ? 'Trocar Conta / Token' : 'Autenticar Conta GitHub' }}
+              </button>
+              <button
+                type="button"
+                @click="loadGithubIntegration(ghAccountFilter || undefined)"
+                :disabled="ghReposLoading"
+                class="p-1.5 rounded bg-dock-bg hover:bg-dock-surface border border-dock-border text-dock-text-muted hover:text-dock-text cursor-pointer"
+                title="Recarregar repositórios do GitHub"
+              >
+                <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': ghReposLoading }" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Caixa de Conexão OAuth Device Flow / Token Global -->
+          <div v-if="showGhConnectBox" class="p-3 rounded-lg bg-dock-bg border border-dock-border space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div class="font-semibold text-dock-text">1. Autenticação 1-Clique via Código do GitHub (OAuth Device Flow)</div>
+                <div class="text-[11px] text-dock-text-dim">
+                  Autorize diretamente no navegador sem precisar criar nem copiar tokens manualmente.
+                </div>
+              </div>
+              <button
+                type="button"
+                @click="handleStartDeviceFlow"
+                class="px-3 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Github class="w-3.5 h-3.5" /> Gerar Código de Autorização
+              </button>
+            </div>
+
+            <div
+              v-if="ghDeviceFlow"
+              class="p-3.5 rounded-lg bg-dock-surface border-2 border-dock-accent space-y-2.5"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div class="text-xs font-semibold text-dock-text">
+                    Passo 1 — Copie este código gerado pelo DeployDock (ele <span class="text-dock-warning underline">não</span> vem pelo app do celular):
+                  </div>
+                  <div class="text-2xl font-mono font-bold tracking-widest text-dock-accent mt-1 select-all">
+                    {{ ghDeviceFlow.user_code }}
+                  </div>
+                  <div v-if="copiedDeviceCode" class="text-[11px] text-dock-success font-mono mt-0.5">
+                    ✓ Código {{ ghDeviceFlow.user_code }} já copiado para sua área de transferência (basta dar Ctrl+V no GitHub)!
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  @click="copyAndOpenGithubDevice"
+                  class="px-4 py-2.5 rounded-lg bg-dock-success hover:opacity-90 text-white font-semibold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-lg"
+                >
+                  <Copy class="w-4 h-4" />
+                  Passo 2: Copiar {{ ghDeviceFlow.user_code }} e Abrir GitHub
+                  <ExternalLink class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div class="text-[11px] text-dock-text-dim flex items-center gap-2">
+                <RefreshCw class="w-3 h-3 animate-spin text-dock-accent" />
+                Aguardando você colar o código <strong>{{ ghDeviceFlow.user_code }}</strong> em <code>github.com/login/device</code> e clicar em "Authorize"...
+              </div>
+            </div>
+
+            <div class="border-t border-dock-border pt-2.5 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-dock-text">2. Ou use um Personal Access Token (PAT) do GitHub</span>
+                <a
+                  href="https://github.com/settings/tokens/new?description=DeployDock-PaaS&scopes=repo,read:user,admin:repo_hook,read:packages"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-[11px] text-dock-accent hover:underline flex items-center gap-1"
+                >
+                  Gerar Token no GitHub em 1 clique <ExternalLink class="w-3 h-3" />
+                </a>
+              </div>
+              <div class="flex gap-2">
+                <input
+                  v-model="ghQuickToken"
+                  type="password"
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx ou github_pat_xxxx"
+                  class="flex-1 bg-dock-surface border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+                />
+                <button
+                  type="button"
+                  @click="handleConnectGithubToken"
+                  class="px-3 py-1.5 rounded bg-dock-success/20 hover:bg-dock-success/30 border border-dock-success/40 text-dock-success font-medium cursor-pointer"
+                >
+                  Salvar e Autenticar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Seletor de Repositórios do GitHub -->
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="relative flex-1 min-w-[180px]">
+                <Search class="w-3.5 h-3.5 text-dock-text-dim absolute left-2.5 top-2" />
+                <input
+                  v-model="ghSearchQuery"
+                  type="text"
+                  placeholder="Filtrar repositórios por nome ou linguagem..."
+                  class="w-full bg-dock-bg border border-dock-border rounded pl-8 pr-2.5 py-1.5 text-dock-text outline-none focus:border-dock-accent"
+                />
+              </div>
+              <div v-if="!ghStatus?.connected" class="flex items-center gap-1.5">
+                <input
+                  v-model="ghAccountFilter"
+                  type="text"
+                  placeholder="Usuário GitHub (ex: JeanMago)"
+                  class="w-36 bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
+                  @keyup.enter="loadGithubIntegration(ghAccountFilter)"
+                />
+                <button
+                  type="button"
+                  @click="loadGithubIntegration(ghAccountFilter)"
+                  class="px-2.5 py-1.5 rounded bg-dock-bg hover:bg-dock-surface border border-dock-border text-dock-text cursor-pointer"
+                >
+                  Buscar Conta
+                </button>
+              </div>
+            </div>
+
+            <div v-if="ghReposLoading" class="py-4 text-center text-dock-text-dim">
+              Buscando repositórios e autenticações no GitHub...
+            </div>
+            <div
+              v-else-if="filteredGhRepos.length > 0"
+              class="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1"
+            >
+              <button
+                v-for="repo in filteredGhRepos"
+                :key="repo.id"
+                type="button"
+                @click="selectGithubRepo(repo)"
+                class="p-2 rounded border text-left transition-all flex items-center justify-between gap-2 cursor-pointer"
+                :class="
+                  form.repo_url === repo.clone_url
+                    ? 'bg-dock-accent/15 border-dock-accent text-dock-text'
+                    : 'bg-dock-bg/80 border-dock-border hover:border-dock-border-light text-dock-text-muted'
+                "
+              >
+                <div class="min-w-0">
+                  <div class="font-mono font-semibold text-dock-text truncate flex items-center gap-1">
+                    <Lock v-if="repo.private" class="w-3 h-3 text-dock-warning shrink-0" />
+                    <span class="truncate">{{ repo.name }}</span>
+                  </div>
+                  <div class="text-[10px] text-dock-text-dim truncate">
+                    {{ repo.language }} • branch: {{ repo.default_branch }}
+                  </div>
+                </div>
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-dock-surface border border-dock-border text-dock-accent shrink-0">
+                  Usar
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Resultado da Inspeção Automática do Código e Autenticações (.env.example) -->
+          <div
+            v-if="inspectingRepo"
+            class="p-2.5 rounded bg-dock-bg border border-dock-border text-dock-accent font-mono text-[11px] flex items-center gap-2"
+          >
+            <RefreshCw class="w-3.5 h-3.5 animate-spin" />
+            Analisando código do repositório, branches, Dockerfile e chaves `.env`...
+          </div>
+          <div
+            v-else-if="repoInspection"
+            class="p-3 rounded-lg bg-dock-bg border border-dock-success/30 space-y-2.5"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="font-mono font-semibold text-dock-success flex items-center gap-1.5">
+                <CheckCircle2 class="w-3.5 h-3.5" />
+                {{ repoInspection.full_name }} • {{ repoInspection.detected_stack }}
+              </div>
+              <span
+                v-if="repoInspection.using_saved_github_token"
+                class="px-2 py-0.5 rounded bg-dock-accent/15 text-dock-accent font-mono text-[10px]"
+              >
+                Credencial GitHub Automática Vinculada
+              </span>
+            </div>
+
+            <!-- Variáveis e Chaves de Autenticação extraídas automaticamente do código (.env.example) -->
+            <div v-if="discoveredEnvVars.length > 0" class="space-y-1.5 pt-1 border-t border-dock-border">
+              <div class="text-[11px] font-semibold text-dock-text flex items-center gap-1.5">
+                <KeyRound class="w-3.5 h-3.5 text-dock-warning" />
+                Autenticações e Variáveis Detectadas no Código ({{ repoInspection.env_file_found }}) — Serão Importadas Automaticamente:
+              </div>
+              <div class="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                <div
+                  v-for="(ev, idx) in discoveredEnvVars"
+                  :key="idx"
+                  class="grid grid-cols-12 gap-1.5 items-center font-mono text-[11px]"
+                >
+                  <input
+                    v-model="ev.key"
+                    type="text"
+                    class="col-span-5 bg-dock-surface border border-dock-border rounded px-2 py-1 text-dock-accent"
+                  />
+                  <input
+                    v-model="ev.value"
+                    :type="ev.is_secret ? 'text' : 'text'"
+                    placeholder="Valor da variável / chave"
+                    class="col-span-6 bg-dock-surface border border-dock-border rounded px-2 py-1 text-dock-text"
+                  />
+                  <span
+                    class="col-span-1 text-center text-[10px]"
+                    :class="ev.is_secret ? 'text-dock-warning' : 'text-dock-text-dim'"
+                    :title="ev.is_secret ? 'Cifrada com Fernet AES-128' : 'Variável padrão'"
+                  >
+                    {{ ev.is_secret ? '🔒' : 'ENV' }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -324,40 +758,66 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
           </div>
         </div>
 
-        <!-- Modo 2: Repositório Git -->
+        <!-- Modo 2: Campos de URL, Branch e Token -->
         <div v-else class="space-y-4">
           <div>
             <label class="block text-xs font-medium text-dock-text-muted mb-1.5">
               URL do Repositório Git <span class="text-dock-accent">*</span>
             </label>
-            <input
-              v-model="form.repo_url"
-              type="text"
-              placeholder="https://github.com/usuario/repositorio.git"
-              class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2.5 text-sm text-dock-text placeholder-dock-text-dim outline-none transition-colors"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="form.repo_url"
+                type="text"
+                placeholder="https://github.com/usuario/repositorio.git"
+                class="flex-1 bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2.5 text-sm text-dock-text placeholder-dock-text-dim outline-none transition-colors font-mono"
+              />
+              <button
+                type="button"
+                @click="inspectRepositoryCode()"
+                :disabled="inspectingRepo || !form.repo_url.trim()"
+                class="px-3 py-2 rounded-lg bg-dock-surface hover:bg-dock-panel border border-dock-border text-xs font-medium text-dock-accent cursor-pointer shrink-0"
+                title="Ler branches, Dockerfile e variáveis .env.example diretamente do código no GitHub"
+              >
+                {{ inspectingRepo ? '...' : 'Ler Código & Auth' }}
+              </button>
+            </div>
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-dock-text-muted mb-1.5 flex items-center gap-1.5">
-              <Lock class="w-3.5 h-3.5 text-dock-accent" />
-              Token de Acesso Git / PAT (Opcional — Para Repositórios Privados)
+            <label class="block text-xs font-medium text-dock-text-muted mb-1.5 flex items-center justify-between">
+              <span class="flex items-center gap-1.5">
+                <Lock class="w-3.5 h-3.5 text-dock-accent" />
+                Token de Acesso Git Individual (Opcional)
+              </span>
+              <span v-if="ghStatus?.connected" class="text-[11px] font-mono text-dock-success">
+                ✓ Autenticação GitHub Global ativa (@{{ ghStatus.username }})
+              </span>
             </label>
             <input
               v-model="form.git_token"
               type="password"
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx ou glpat-xxxxxxxxxxxx"
+              :placeholder="
+                ghStatus?.connected
+                  ? 'Deixe em branco para usar automaticamente a autenticação global do GitHub'
+                  : 'ghp_xxxxxxxxxxxxxxxxxxxx ou glpat-xxxxxxxxxxxx'
+              "
               class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2 text-sm font-mono text-dock-text placeholder-dock-text-dim outline-none"
             />
-            <p class="text-[11px] text-dock-text-dim mt-1">
-              Criptografado em repouso com Fernet AES-128. Permite clonar repositórios privados do GitHub ou GitLab.
-            </p>
           </div>
 
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-medium text-dock-text-muted mb-1.5">Branch Monitorada</label>
+              <select
+                v-if="repoInspection?.branches?.length"
+                v-model="form.branch"
+                @change="inspectRepositoryCode(repoInspection.full_name, form.branch)"
+                class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded-lg px-3.5 py-2 text-sm font-mono text-dock-text outline-none"
+              >
+                <option v-for="b in repoInspection.branches" :key="b" :value="b">{{ b }}</option>
+              </select>
               <input
+                v-else
                 v-model="form.branch"
                 type="text"
                 placeholder="main"
@@ -432,6 +892,12 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="font-medium text-sm text-dock-text">Integração Contínua (GitOps Webhook)</span>
+              <span
+                v-if="ghStatus?.connected && ghStatus?.auto_create_webhook"
+                class="text-[10px] font-mono px-2 py-0.5 rounded bg-dock-success/15 text-dock-success"
+              >
+                Auto-Registro no GitHub Ativo
+              </span>
             </div>
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" v-model="form.auto_deploy" class="sr-only peer" />

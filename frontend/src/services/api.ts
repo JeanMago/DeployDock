@@ -447,6 +447,64 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ simulated_cpu_by_project }),
       }),
+    githubStatus: () => request<import('./types').GitHubIntegrationStatus>('/paas/github'),
+    connectGithub: (data: {
+      token: string;
+      auto_inject_git_token?: boolean;
+      auto_create_webhook?: boolean;
+      auto_import_env_example?: boolean;
+    }) =>
+      request<import('./types').GitHubIntegrationStatus>('/paas/github/connect', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    startGithubDeviceFlow: (client_id?: string) =>
+      request<{
+        user_code: string;
+        verification_uri: string;
+        expires_in: number;
+        interval: number;
+      }>('/paas/github/device/start', {
+        method: 'POST',
+        body: JSON.stringify({ client_id: client_id || undefined }),
+      }),
+    pollGithubDeviceFlow: () =>
+      request<{
+        status: string;
+        error_description?: string;
+        github: import('./types').GitHubIntegrationStatus;
+      }>('/paas/github/device/poll', {
+        method: 'POST',
+      }),
+    updateGithubPreferences: (data: {
+      username?: string;
+      oauth_client_id?: string;
+      auto_inject_git_token?: boolean;
+      auto_create_webhook?: boolean;
+      auto_import_env_example?: boolean;
+    }) =>
+      request<import('./types').GitHubIntegrationStatus>('/paas/github/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    disconnectGithub: () =>
+      request<import('./types').GitHubIntegrationStatus>('/paas/github/disconnect', {
+        method: 'DELETE',
+      }),
+    listGithubRepos: (username?: string) =>
+      request<import('./types').GitHubRepoItem[]>(
+        `/paas/github/repos${username ? `?username=${encodeURIComponent(username)}` : ''}`
+      ),
+    inspectGithubRepo: (repo_or_url: string, branch?: string) =>
+      request<import('./types').GitHubRepoInspection>('/paas/github/inspect', {
+        method: 'POST',
+        body: JSON.stringify({ repo_or_url, branch }),
+      }),
+    createGithubWebhook: (repo_or_url: string, webhook_url: string, webhook_secret: string) =>
+      request<any>('/paas/github/webhook', {
+        method: 'POST',
+        body: JSON.stringify({ repo_or_url, webhook_url, webhook_secret }),
+      }),
   },
   system: {
     info: () => request<SystemInfo>('/system/info'),
