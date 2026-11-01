@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Hexagon, Lock, User, ArrowRight, AlertCircle, ShieldCheck } from 'lucide-vue-next';
+import { Hexagon, Lock, User, ArrowRight, AlertCircle } from 'lucide-vue-next';
 import { useAuth } from '@/composables/useAuth';
 
 const router = useRouter();

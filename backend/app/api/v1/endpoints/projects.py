@@ -1,26 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List, Optional as _Optional
-from pydantic import BaseModel as _BaseModel
-import os
-import shutil
-import secrets
-import git
 import logging
+import os
+import secrets
+import shutil
 import uuid
+from typing import List
+from typing import Optional as _Optional
 
-from app.api.deps import get_db, get_current_user, require_role
+import git
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel as _BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user, get_db, require_role
+from app.api.v1.endpoints.webhooks import _trigger_deploy
 from app.core.config import settings
-from app.core.routing import slugify, public_url as build_public_url
-from app.core.security import encrypt_value, decrypt_value
+from app.core.routing import public_url as build_public_url
+from app.core.routing import slugify
+from app.core.security import decrypt_value, encrypt_value
 from app.core.waf import security_manager, validate_safe_git_url
 from app.db.session import async_session_factory
+from app.models.environment import EnvironmentVariable
 from app.models.project import Project
 from app.models.user import User
-from app.models.environment import EnvironmentVariable
-from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectRead, ProjectList, RoutingConfig
-from app.api.v1.endpoints.webhooks import _trigger_deploy
+from app.schemas.project import ProjectCreate, ProjectList, ProjectRead, ProjectUpdate, RoutingConfig
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
@@ -372,6 +375,7 @@ async def create_project(
         memory_limit_mb=project_in.memory_limit_mb,
         cpu_limit_cores=project_in.cpu_limit_cores,
         auto_heal=True if project_in.auto_heal is None else project_in.auto_heal,
+        deploy_strategy=project_in.deploy_strategy or "recreate",
     )
     db.add(db_obj)
     await db.commit()

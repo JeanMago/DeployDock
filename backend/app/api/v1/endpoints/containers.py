@@ -1,11 +1,13 @@
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
-from typing import List, Any, Optional
-from app.services.docker_service import DockerService
-from app.api.deps import get_docker_service, require_role, get_current_user
+
+from app.api.deps import get_current_user, get_docker_service, require_role
 from app.core.waf import security_manager, validate_safe_container_command
 from app.models.user import User
-from app.schemas.container import ContainerSummary, ContainerDetail
+from app.schemas.container import ContainerDetail, ContainerSummary
+from app.services.docker_service import DockerService
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 

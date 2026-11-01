@@ -3,13 +3,11 @@ import { ref } from 'vue';
 import {
   BookOpen,
   Github,
-  Terminal,
   Check,
   Copy,
   ArrowRight,
   HelpCircle,
   Sparkles,
-  RefreshCw,
   ShieldCheck,
   ExternalLink,
   Globe,

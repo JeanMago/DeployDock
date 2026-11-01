@@ -57,7 +57,7 @@
 ---
 
 ### 3. Infraestrutura & Produção — COMPLETO ✅
-- [x] `docker-compose.yml` otimizado e seguro para produção (Traefik v2.11 + PostgreSQL 16 + Backend protegido em `127.0.0.1` + Frontend Nginx multi-stage `production`)
+- [x] `docker-compose.yml` otimizado e seguro para produção (Traefik v3 + PostgreSQL 16 + Backend protegido em `127.0.0.1` + Frontend Nginx multi-stage `production`)
 - [x] `deploy-prod.sh` — Script automatizado para VPS Linux (instala Docker, cria 2GB Swap, abre portas no `iptables`/`ufw`, gera `.env` seguro e sobe a stack)
 - [x] `GUIA_DEPLOY_PRODUCAO_ORACLE_HOSTGRID.md` — Documentação passo a passo para Oracle Cloud (OCI) e Hostgrid VPS
 - [x] `AI_CONTEXT.md` — Documento de contexto arquitetural completo para assistentes de IA

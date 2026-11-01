@@ -10,7 +10,10 @@ export function useWebSocket(url: string, onMessage?: (data: any) => void) {
     if (ws.value?.readyState === WebSocket.OPEN) return;
     
     status.value = 'connecting';
-    const wsUrl = new URL(url, window.location.origin.replace(/^http/, 'ws')).toString();
+    const wsUrlObj = new URL(url, window.location.origin.replace(/^http/, 'ws'));
+    const token = localStorage.getItem('deploydock_token');
+    if (token) wsUrlObj.searchParams.set('token', token);
+    const wsUrl = wsUrlObj.toString();
     ws.value = new WebSocket(wsUrl);
 
     ws.value.onopen = () => {

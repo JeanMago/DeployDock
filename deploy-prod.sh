@@ -12,7 +12,7 @@ echo "============================================================"
 # 1. Instalar Docker e Docker Compose se ainda não estiverem instalados
 if ! command -v docker &> /dev/null; then
     echo "[1/5] Docker não encontrado. Instalando Docker Engine..."
-    curl -fsSL https://get.docker.com | sudo sh
+    curl -fsSL https://get.docker.com | sudo sh || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin
     sudo usermod -aG docker "$USER" || true
 else
     echo "[1/5] Docker já instalado: $(docker --version)"
@@ -89,6 +89,7 @@ CORS_ORIGINS=["http://painel.${SSLIP_DOMAIN}","http://${PUBLIC_IP}:3000","http:/
 INITIAL_ADMIN_USERNAME=admin
 INITIAL_ADMIN_EMAIL=admin@${SSLIP_DOMAIN}
 INITIAL_ADMIN_PASSWORD=${ADMIN_PASS}
+ENVIRONMENT=production
 EOF
     echo "------------------------------------------------------------"
     echo "  Arquivo .env criado com sucesso!"

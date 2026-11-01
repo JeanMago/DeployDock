@@ -12,15 +12,15 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import settings
-from app.db.base import Base
+import app.models.deployment  # noqa: F401
+import app.models.environment  # noqa: F401
 
 # Importar todos os modelos para que Base.metadata os registre antes do create_all.
 # Sem esses imports, o SQLAlchemy não encontra as tabelas ao chamar metadata.create_all().
-import app.models.project          # noqa: F401
-import app.models.deployment        # noqa: F401
-import app.models.environment       # noqa: F401
-import app.models.user              # noqa: F401
+import app.models.project  # noqa: F401
+import app.models.user  # noqa: F401
+from app.core.config import settings
+from app.db.base import Base
 
 # Engine assíncrona
 is_sqlite = settings.DATABASE_URL.startswith("sqlite")
@@ -93,10 +93,12 @@ def _create_and_migrate(sync_conn) -> None:
 
 async def _seed_initial_admin() -> None:
     """Garante que as primeiras credenciais de administrador existam no banco."""
-    from sqlalchemy import select
-    from app.models.user import User
-    from app.core.security import get_password_hash
     import logging
+
+    from sqlalchemy import select
+
+    from app.core.security import get_password_hash
+    from app.models.user import User
 
     logger = logging.getLogger("deploydock")
 

@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.routing import normalize_domain, normalize_subdomain
 
@@ -39,6 +40,7 @@ class ProjectBase(BaseModel):
     memory_limit_mb: Optional[int] = Field(default=None, ge=32, le=65536)
     cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
     auto_heal: Optional[bool] = True
+    deploy_strategy: Optional[Literal["recreate", "blue_green"]] = "recreate"
 
 
 class ProjectCreate(RoutingFieldsMixin, ProjectBase):
@@ -65,6 +67,7 @@ class ProjectUpdate(RoutingFieldsMixin, BaseModel):
     memory_limit_mb: Optional[int] = Field(default=None, ge=32, le=65536)
     cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
     auto_heal: Optional[bool] = None
+    deploy_strategy: Optional[Literal["recreate", "blue_green"]] = None
 
 
 class ProjectRead(ProjectBase):

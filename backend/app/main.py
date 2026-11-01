@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 
@@ -24,15 +25,18 @@ if not shutil.which("git"):
 
 os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
+from fastapi.responses import PlainTextResponse
+
+from app.api.v1.endpoints import gateway, ws
+from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.db.session import init_db, engine
-from app.api.v1.router import api_router
-from app.api.v1.endpoints import ws
-from app.core.waf import SecurityShieldMiddleware
+from app.core.waf import SecurityShieldMiddleware, security_manager
+from app.db.session import engine, init_db
 from app.services.uptime_service import uptime_monitor
 
 setup_logging()
@@ -40,6 +44,9 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.enforce_production_security()
+    for problem in settings.insecure_settings():
+        logging.getLogger("deploydock").warning("[Segurança] %s", problem)
     await init_db()
     uptime_monitor.start()
     yield
@@ -60,6 +67,31 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(ws.router, prefix="/ws", tags=["websocket"])
+app.include_router(gateway.router, prefix="/open", tags=["gateway"])
+
+
+@app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
+async def prometheus_metrics() -> str:
+    """Métricas do WAF em formato texto Prometheus (backend exposto apenas em 127.0.0.1 por padrão)."""
+    stats = security_manager.stats
+    lines = []
+    for key, help_text in (
+        ("total_requests_inspected", "Total de requisições inspecionadas pelo escudo de segurança"),
+        ("waf_attacks_blocked", "Ataques bloqueados pelo WAF"),
+        ("rate_limits_triggered", "Bloqueios por rate limiting"),
+        ("brute_force_blocks", "Bloqueios por brute-force de login"),
+    ):
+        lines += [
+            f"# HELP deploydock_{key}_total {help_text}",
+            f"# TYPE deploydock_{key}_total counter",
+            f"deploydock_{key}_total {stats.get(key, 0)}",
+        ]
+    lines += [
+        "# HELP deploydock_blocked_ips IPs atualmente bloqueados",
+        "# TYPE deploydock_blocked_ips gauge",
+        f"deploydock_blocked_ips {len(security_manager.blocked_ips)}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 @app.get("/health")

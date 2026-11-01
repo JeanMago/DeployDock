@@ -1,15 +1,41 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
-from app.db.session import get_db
-from app.services.docker_service import DockerService
+from fastapi import Depends, HTTPException, WebSocket, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.security import decode_access_token
+from app.db.session import get_db
 from app.models.user import User
+from app.services.docker_service import DockerService
 
 security_scheme = HTTPBearer(auto_error=False)
+
+
+async def authenticate_websocket(websocket: WebSocket) -> User | None:
+    """
+    Autentica uma conexão WebSocket via query string `?token=<JWT>`.
+
+    Navegadores não permitem cabeçalhos customizados em WebSocket, então o JWT
+    é enviado como parâmetro. Retorna o usuário ou None (conexão deve ser recusada).
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+        user_id = uuid.UUID(payload.get("sub", ""))
+    except (HTTPException, ValueError, TypeError):
+        return None
+    from app.db import session as db_session  # import tardio: a factory pode ser recriada no fallback SQLite
+
+    async with db_session.async_session_factory() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        return None
+    return user
 
 
 def get_docker_service() -> DockerService:

@@ -29,6 +29,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://deploydock:deploydock@db:5432/deploydock}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-changeme}
       - DOCKER_HOST=${DOCKER_HOST:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost","http://localhost:3000"]}

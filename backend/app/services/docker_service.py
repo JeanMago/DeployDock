@@ -15,7 +15,7 @@ import time
 from typing import Any, Generator
 
 import docker
-from docker.errors import APIError, NotFound, ImageNotFound
+from docker.errors import APIError, ImageNotFound, NotFound
 
 from app.core.config import settings
 
@@ -351,6 +351,14 @@ class DockerService:
             raise ValueError(f"Contêiner '{container_id}' não encontrado.")
         except APIError as e:
             raise RuntimeError(f"Erro Docker Engine: {e.explanation}")
+
+    async def rename_container(self, container_id: str, new_name: str) -> None:
+        """Renomeia um contêiner (usado pelo deploy blue/green para assumir o nome canônico)."""
+        try:
+            c = await asyncio.to_thread(self.client.containers.get, container_id)
+        except NotFound:
+            raise ValueError(f"Contêiner '{container_id}' não encontrado.")
+        await asyncio.to_thread(c.rename, new_name)
 
     async def restart_container(self, container_id: str, timeout: int = 10) -> dict[str, str]:
         """Reinicia um contêiner."""

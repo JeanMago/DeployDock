@@ -1,5 +1,6 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import containers, projects, deployments, webhooks, system, ws, auth, security
+
+from app.api.v1.endpoints import auth, containers, deployments, projects, security, system, webhooks, ws
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

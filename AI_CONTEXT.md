@@ -15,7 +15,7 @@
   - **Desenvolvimento local (`start-dev.sh` / `start-dev.ps1`):** SQLite assíncrono (`sqlite+aiosqlite:///./deploydock.db`) configurado automaticamente quando PostgreSQL não está rodando na porta 5432.
   - **Produção (`docker-compose.yml` / `deploy-prod.sh`):** PostgreSQL 16 (`postgresql+asyncpg://...`).
 - **Frontend:** Vue 3 (Composition API `<script setup lang="ts">`) + TypeScript + Vite + Tailwind CSS v4 + Pinia + Vue Router + Xterm.js + Chart.js (`vue-chartjs`) + Lucide Vue Next.
-- **Proxy Reverso & SSL:** Traefik v2.11 gerenciado via Docker Labels dinâmicas (`backend/app/core/routing.py`) com suporte a Let's Encrypt ACME (`APPS_TLS_ENABLED=true`) e redirecionamento automático HTTP → HTTPS.
+- **Proxy Reverso & SSL:** Traefik v3 gerenciado via Docker Labels dinâmicas (`backend/app/core/routing.py`) com suporte a Let's Encrypt ACME (`APPS_TLS_ENABLED=true`) e redirecionamento automático HTTP → HTTPS.
 - **Segurança Integrada:** Middleware WAF + Rate Limiting + Anti-Brute-Force + Security Headers (`backend/app/core/waf.py`).
 
 ---
@@ -47,7 +47,7 @@ backend/app/
 ├── main.py                           # App FastAPI, lifespan (DB init + seed admin), CORS, SecurityMiddleware (WAF)
 ├── core/
 │   ├── config.py                     # Settings Pydantic (DATABASE_URL, SECRET_KEY, APPS_BASE_DOMAIN, APPS_TLS_ENABLED, etc.)
-│   ├── security.py                   # Hash de senha (bcrypt), JWT (create_access_token, decode), Fernet (env vars)
+│   ├── security.py                   # Hash de senha (PBKDF2-HMAC-SHA256), JWT (create_access_token, decode), Fernet (env vars)
 │   ├── routing.py                    # Funções normalize_hostname() e build_traefik_labels() (HTTP + HTTPS redirect)
 │   └── waf.py                        # SecurityEngine + SecurityMiddleware (WAF SQLi/XSS/Traversal/CmdInj, Rate Limit, IP Ban)
 ├── db/

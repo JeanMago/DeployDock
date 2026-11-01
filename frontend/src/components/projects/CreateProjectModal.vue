@@ -26,6 +26,7 @@ const form = ref({
   auto_deploy: true,
   preview_deployments_enabled: true,
   auto_heal: true,
+  blue_green: false,
   memory_limit_mb: undefined as number | undefined,
   cpu_limit_cores: undefined as number | undefined,
   webhook_secret: generateSecret(),
@@ -141,6 +142,7 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
       auto_deploy: form.value.auto_deploy,
       preview_deployments_enabled: form.value.preview_deployments_enabled,
       auto_heal: form.value.auto_heal,
+      deploy_strategy: form.value.blue_green ? 'blue_green' : 'recreate',
       memory_limit_mb: form.value.memory_limit_mb ? Number(form.value.memory_limit_mb) : undefined,
       cpu_limit_cores: form.value.cpu_limit_cores ? Number(form.value.cpu_limit_cores) : undefined,
       webhook_secret: form.value.webhook_secret,
@@ -413,6 +415,10 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
               <input type="checkbox" v-model="form.auto_heal" class="accent-dock-accent" />
               <span>Auto-Healing ativo (reiniciar contêiner se falhar no Health Check)</span>
+            </label>
+            <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
+              <input type="checkbox" v-model="form.blue_green" class="accent-dock-accent" />
+              <span>Deploy Blue/Green (sem downtime: valida a nova versão antes de remover a antiga)</span>
             </label>
             <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text-muted">
               <input type="checkbox" v-model="form.preview_deployments_enabled" class="accent-dock-accent" />

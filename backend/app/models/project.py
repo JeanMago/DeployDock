@@ -1,9 +1,12 @@
-from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime
-from sqlalchemy.orm import mapped_column, Mapped, relationship
-from sqlalchemy.sql import func
-from app.db.base import Base
-from app.core.routing import project_host, public_url as build_public_url
 import uuid
+
+from sqlalchemy import Boolean, DateTime, Float, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+
+from app.core.routing import project_host
+from app.core.routing import public_url as build_public_url
+from app.db.base import Base
 
 
 class Project(Base):
@@ -29,6 +32,11 @@ class Project(Base):
     memory_limit_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cpu_limit_cores: Mapped[float | None] = mapped_column(Float, nullable=True)
     auto_heal: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    # Estratégia de implantação: 'recreate' (para e recria) ou 'blue_green' (sobe a nova versão ao lado,
+    # valida e só então remove a antiga). NULL (bancos legados) é tratado como 'recreate'.
+    deploy_strategy: Mapped[str | None] = mapped_column(
+        String(20), default="recreate", server_default="recreate", nullable=True
+    )
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

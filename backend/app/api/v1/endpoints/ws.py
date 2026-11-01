@@ -7,11 +7,13 @@ Endpoints WebSocket para streaming em tempo real.
 """
 
 import asyncio
-from datetime import datetime, timezone
 import threading
 import time
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.api.deps import authenticate_websocket
 from app.services.docker_service import DockerService
 from app.services.websocket_manager import ws_manager
 
@@ -24,6 +26,9 @@ async def container_logs_ws(websocket: WebSocket, container_id: str) -> None:
     Streaming de novas linhas de log de um contêiner em tempo real.
     Usa since=agora para enviar apenas eventos novos (o histórico é carregado via REST).
     """
+    if not await authenticate_websocket(websocket):
+        await websocket.close(code=4401)
+        return
     await ws_manager.connect(websocket, f"logs_{container_id}")
     loop = asyncio.get_running_loop()
     log_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
@@ -65,6 +70,9 @@ async def container_metrics_ws(websocket: WebSocket, container_id: str) -> None:
     """
     Streaming de métricas (CPU, memória, rede) a cada 2 segundos.
     """
+    if not await authenticate_websocket(websocket):
+        await websocket.close(code=4401)
+        return
     await ws_manager.connect(websocket, f"metrics_{container_id}")
     docker = DockerService()
 
@@ -102,6 +110,9 @@ async def deployment_stream_ws(websocket: WebSocket, deployment_id: str) -> None
     O DeployOrchestrator envia atualizações via ws_manager.broadcast(),
     que são automaticamente entregues a todas as conexões neste tópico.
     """
+    if not await authenticate_websocket(websocket):
+        await websocket.close(code=4401)
+        return
     topic = f"deploy_{deployment_id}"
     await ws_manager.connect(websocket, topic)
     try:

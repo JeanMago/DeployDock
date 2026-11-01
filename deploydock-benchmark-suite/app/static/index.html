@@ -97,6 +97,20 @@
 
       <!-- Control Toolbar -->
       <div class="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          id="input-platform-label"
+          placeholder="Plataforma (ex: Portainer CE, Coolify...)"
+          class="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 w-44"
+          title="Rotule manualmente a plataforma sendo testada neste momento"
+        />
+        <input
+          type="text"
+          id="input-target-url"
+          placeholder="URL Alvo (opcional)"
+          class="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 w-40 mono"
+          title="URL agnóstica para testar WAF, Security Headers e Latência de qualquer plataforma"
+        />
         <div class="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-1 text-xs">
           <span class="px-2 text-slate-400 font-medium">Carga:</span>
           <select id="select-intensity" class="bg-slate-800 text-sky-300 font-semibold rounded px-2 py-1 border-none focus:outline-none cursor-pointer">
@@ -278,7 +292,7 @@
           <div class="flex items-center justify-between mb-3">
             <div>
               <h2 class="text-sm font-bold text-white">Radar Multidimensional de Capacidades PaaS & Segurança</h2>
-              <p class="text-xs text-slate-400">DeployDock vs Portainer CE vs Coolify v4 vs CapRover vs Dokploy</p>
+              <p class="text-xs text-slate-400">DeployDock vs Portainer CE vs Coolify v4 (Escopo Comparativo TCC)</p>
             </div>
           </div>
           <div class="h-80 flex items-center justify-center">
@@ -631,6 +645,8 @@
         return;
       }
       const intensity = document.getElementById('select-intensity').value || 'heavy';
+      const platform_label = (document.getElementById('input-platform-label')?.value || '').trim() || null;
+      const target_url = (document.getElementById('input-target-url')?.value || '').trim() || null;
       const overlay = document.getElementById('stress-overlay');
       const btn = document.getElementById('btn-run-audit');
       overlay.classList.remove('hidden');
@@ -640,7 +656,7 @@
         const res = await fetch('/api/audit/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ intensity })
+          body: JSON.stringify({ intensity, platform_label, target_url })
         });
         reportData = await res.json();
         renderAll();

@@ -1,14 +1,15 @@
+import uuid as _uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel as _BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import uuid as _uuid
 
-from app.api.deps import get_db, get_current_user, require_role
-from app.core.security import verify_password, create_access_token, get_password_hash
+from app.api.deps import get_current_user, get_db, require_role
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.core.waf import security_manager
 from app.models.user import User
-from app.schemas.user import LoginRequest, TokenResponse, UserRead, UserCreate
+from app.schemas.user import LoginRequest, TokenResponse, UserCreate, UserRead
 
 router = APIRouter()
 

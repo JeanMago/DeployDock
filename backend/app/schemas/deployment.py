@@ -1,7 +1,9 @@
-from pydantic import BaseModel, ConfigDict
 import uuid
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
+
 
 class DeploymentBase(BaseModel):
     project_id: uuid.UUID
@@ -19,7 +21,7 @@ class DeploymentRead(DeploymentBase):
     duration_seconds: Optional[float] = None
     started_at: datetime
     finished_at: Optional[datetime] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class DeploymentList(BaseModel):
@@ -36,7 +38,7 @@ class DeploymentList(BaseModel):
     duration_seconds: Optional[float] = None
     started_at: datetime
     finished_at: Optional[datetime] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class DeploymentTrigger(BaseModel):

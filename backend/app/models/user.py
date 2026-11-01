@@ -1,8 +1,10 @@
-from sqlalchemy import String, Boolean, DateTime
-from sqlalchemy.orm import mapped_column, Mapped
-from sqlalchemy.sql import func
-from app.db.base import Base
 import uuid
+
+from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from app.db.base import Base
 
 
 class User(Base):

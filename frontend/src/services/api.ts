@@ -8,6 +8,50 @@ import type {
 
 const API_BASE = '/api/v1';
 
+export function resolvePublicUrl(rawUrl?: string | null): string | null | undefined {
+  if (!rawUrl || typeof window === 'undefined') return rawUrl;
+  const host = window.location.hostname;
+  if (!host || host === 'localhost' || host === '127.0.0.1') {
+    return rawUrl;
+  }
+  const subMatch = rawUrl.match(/^https?:\/\/([^./]+)\.localhost(?::\d+)?\/?$/i);
+  if (subMatch) {
+    return `${window.location.origin}/open/${subMatch[1]}/`;
+  }
+  const portMatch = rawUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)\/?$/i);
+  if (portMatch) {
+    return `${window.location.origin}/open/port-${portMatch[1]}/`;
+  }
+  return rawUrl;
+}
+
+function adaptExternalUrls<T>(data: T): T {
+  if (!data || typeof window === 'undefined') return data;
+  const host = window.location.hostname;
+  if (!host || host === 'localhost' || host === '127.0.0.1') return data;
+
+  if (Array.isArray(data)) {
+    return data.map((item) => adaptExternalUrls(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const obj = data as Record<string, any>;
+    if (typeof obj.public_url === 'string' && obj.public_url) {
+      obj.public_url = resolvePublicUrl(obj.public_url);
+    } else if (!obj.public_url && obj.ports && typeof obj.ports === 'object' && obj.name !== 'deploydock-db') {
+      for (const bindings of Object.values(obj.ports)) {
+        if (Array.isArray(bindings)) {
+          const hp = bindings.find((b: any) => b && b.HostPort && !['5432', '443'].includes(String(b.HostPort)));
+          if (hp?.HostPort) {
+            obj.public_url = `${window.location.origin}/open/port-${hp.HostPort}/`;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return data;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('deploydock_token');
   const headers: Record<string, string> = {
@@ -42,7 +86,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     }
     throw new Error(errorDetail || `API Error: ${res.status} ${res.statusText}`);
   }
-  return res.json() as Promise<T>;
+  const json = (await res.json()) as T;
+  return adaptExternalUrls(json);
 }
 
 async function downloadBlob(endpoint: string, fallbackFilename: string): Promise<void> {
@@ -110,7 +155,7 @@ export const api = {
       }),
   },
   containers: {
-    list: () => request<Container[]>('/containers'),
+    list: (all = true) => request<Container[]>(`/containers?all=${all}`),
     get: (id: string) => request<ContainerDetail>(`/containers/${id}`),
     start: (id: string) => request<{message: string}>(`/containers/${id}/start`, { method: 'POST' }),
     stop: (id: string) => request<{message: string}>(`/containers/${id}/stop`, { method: 'POST' }),

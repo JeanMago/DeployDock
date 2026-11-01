@@ -51,6 +51,7 @@ export interface Project {
   memory_limit_mb?: number | null;
   cpu_limit_cores?: number | null;
   auto_heal?: boolean;
+  deploy_strategy?: 'recreate' | 'blue_green' | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -75,6 +76,7 @@ export interface ProjectCreate {
   memory_limit_mb?: number | null;
   cpu_limit_cores?: number | null;
   auto_heal?: boolean;
+  deploy_strategy?: 'recreate' | 'blue_green' | null;
 }
 
 export interface RoutingConfig {

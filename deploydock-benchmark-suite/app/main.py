@@ -37,6 +37,7 @@ from app.probes.document_generator import (
 )
 from app.probes.performance_bench import run_full_performance_suite
 from app.probes.security_probe import inspect_container_security
+from app.probes.universal_platform_probe import run_universal_target_probe
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,6 +70,7 @@ IMPORTED_SNAPSHOTS: List[Dict[str, Any]] = []
 class AuditRunRequest(BaseModel):
     platform_label: Optional[str] = None
     deploydock_api_url: Optional[str] = None
+    target_url: Optional[str] = None
     username: str = "admin"
     password: str = "admin123"
     intensity: str = "heavy"  # standard | heavy | extreme
@@ -164,11 +166,12 @@ async def execute_complete_audit(
     request_headers: Optional[Dict[str, str]] = None,
     platform_label: Optional[str] = None,
     deploydock_api_url: Optional[str] = None,
+    target_url: Optional[str] = None,
     username: str = "admin",
     password: str = "admin123",
     intensity: str = "heavy",
 ) -> Dict[str, Any]:
-    """Executa todas as sondas internas, stress test de máquina, testes E2E e gera os documentos formais."""
+    """Executa todas as sondas internas, stress test de máquina, sonda universal, testes E2E e gera os documentos formais."""
     global LATEST_REPORT
     t0 = time.perf_counter()
 
@@ -188,6 +191,14 @@ async def execute_complete_audit(
         username=username,
         password=password,
     )
+
+    effective_target_url = (
+        (target_url or "").strip()
+        or os.getenv("BENCHMARK_TARGET_URL", "").strip()
+        or (e2e_results.get("api_url") or "")
+        or "http://127.0.0.1:8080/health"
+    )
+    universal_probe = await run_universal_target_probe(target_url=effective_target_url)
 
     current_snapshot = build_current_platform_snapshot(
         orchestrator_info=orchestrator,
@@ -209,6 +220,7 @@ async def execute_complete_audit(
         "environment_storage": env_storage,
         "security": security,
         "performance": performance,
+        "universal_probe": universal_probe,
         "deploydock_e2e": e2e_results,
         "current_platform_snapshot": current_snapshot,
         "feature_catalog": FEATURE_CATALOG,
@@ -242,10 +254,17 @@ async def trigger_audit_run(body: AuditRunRequest, request: Request):
         request_headers=dict(request.headers),
         platform_label=body.platform_label,
         deploydock_api_url=body.deploydock_api_url,
+        target_url=body.target_url,
         username=body.username,
         password=body.password,
         intensity=body.intensity,
     )
+
+
+@app.post("/api/probe/universal")
+async def run_universal_probe_endpoint(target_url: str = "http://127.0.0.1:8080/health"):
+    """Executa apenas a sonda universal agnóstica contra qualquer URL de plataforma/aplicação."""
+    return await run_universal_target_probe(target_url=target_url)
 
 
 @app.post("/api/chaos/health")

@@ -8,7 +8,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, Optional
 from urllib.parse import unquote, urlparse
 
 from fastapi import HTTPException, Request, Response
@@ -143,6 +143,7 @@ class SecurityManager:
         if blocked and event_type in ("waf_block", "manual_block", "auth_fail"):
             try:
                 import asyncio
+
                 from app.services.notification_service import notification_manager
 
                 loop = asyncio.get_running_loop()
@@ -318,10 +319,17 @@ def validate_safe_git_url(repo_url: str) -> str:
             )
         try:
             ip_obj = ipaddress.ip_address(hostname)
-            if ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:
+            if (
+                ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_private
+                or ip_obj.is_unspecified
+                or ip_obj.is_reserved
+            ):
                 raise HTTPException(
                     status_code=400,
-                    detail="Segurança Anti-SSRF: Endereços de loopback/link-local são bloqueados.",
+                    detail="Segurança Anti-SSRF: Endereços de loopback/link-local/rede privada são bloqueados.",
                 )
         except ValueError:
             # É um domínio normal (ex: github.com, gitlab.com)

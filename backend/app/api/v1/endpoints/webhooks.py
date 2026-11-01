@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.core.config import settings
 from app.core.waf import security_manager
+from app.db.session import async_session_factory
 from app.models.project import Project
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
-from app.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 

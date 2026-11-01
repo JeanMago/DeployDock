@@ -10,7 +10,7 @@ O **DeployDock** unifica em uma única interface responsiva (Desktop & Mobile co
 
 - **Gerenciamento Completo de Contêineres Docker** — Dashboard em tempo real, Quick App Launcher (catálogo 1-clique para Redis, Postgres, MySQL, Nginx, Uptime Kuma, Adminer ou imagem customizada), Terminal Interativo (`/bin/sh` / `/bin/bash`), Explorador de Arquivos dentro do contêiner, e coletor avançado de logs com filtro por severidade (`ERROR`, `WARN`, `INFO`), regex, pausa e download.
 - **Deploy Contínuo GitOps (Zero-Config & Dockerfile)** — Pipeline automatizado (`Clone → Build / Nixpacks Auto-Dockerfile → Deploy → Health Check → Rollback`) acionado manualmente ou por eventos `push` do GitHub validados via **HMAC-SHA256**.
-- **Roteamento Reverso & HTTPS Automático** — Integração nativa com **Traefik v2.11** para subdomínios automáticos (`projeto.seudominio.com` ou `projeto.<IP>.sslip.io`), domínios customizados e redirecionamento automático HTTP → HTTPS (Let's Encrypt).
+- **Roteamento Reverso & HTTPS Automático** — Integração nativa com **Traefik v3** para subdomínios automáticos (`projeto.seudominio.com` ou `projeto.<IP>.sslip.io`), domínios customizados e redirecionamento automático HTTP → HTTPS (Let's Encrypt).
 - **Segurança Ativa (WAF + Rate Limiter + Anti-Brute-Force)** — Middleware de inspeção de pacotes contra SQL Injection, XSS, Path Traversal e Command Injection, bloqueio automático de IPs atacantes e painel de auditoria em tempo real.
 
 ---
@@ -38,10 +38,10 @@ O **DeployDock** unifica em uma única interface responsiva (Desktop & Mobile co
 | Camada | Tecnologia |
 |---|---|
 | **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2.0 · Pydantic v2 · Docker SDK (`docker-py`) |
-| **Segurança** | WAF Middleware · JWT (`python-jose`) · Bcrypt · HMAC-SHA256 Webhook Verification |
+| **Segurança** | WAF Middleware · JWT (`PyJWT`) · PBKDF2-HMAC-SHA256 · HMAC-SHA256 Webhook Verification |
 | **Frontend** | Vue.js 3 (Composition API) · TypeScript · Tailwind CSS · Pinia · Lucide Icons · Xterm.js |
 | **Banco de Dados** | PostgreSQL 16 (Produção) / SQLite (Desenvolvimento rápido) |
-| **Proxy & SSL** | Traefik v2.11 · Let's Encrypt ACME (TLS HTTP Challenge) |
+| **Proxy & SSL** | Traefik v3 · Let's Encrypt ACME (TLS HTTP Challenge) |
 | **Infraestrutura** | Docker Engine & Docker Compose v2 |
 
 ---
@@ -107,7 +107,7 @@ DeployDock/
 │       ├── core/
 │       │   ├── config.py                     # Variáveis de ambiente e configurações globais
 │       │   ├── routing.py                    # Geração dinâmica de labels Traefik (HTTP + HTTPS Redirect)
-│       │   ├── security.py                   # Hash Bcrypt e tokens JWT
+│       │   ├── security.py                   # Hash PBKDF2-HMAC-SHA256 e tokens JWT
 │       │   └── waf.py                        # WAF, Rate Limiter, Anti-Brute-Force e Security Headers
 │       ├── models/                           # Modelos ORM (User, Project, Deployment)
 │       ├── schemas/                          # Schemas Pydantic
@@ -144,3 +144,40 @@ DeployDock/
 ## 📄 Licença
 
 Este projeto foi desenvolvido como Trabalho de Conclusão de Curso (TCC) em Ciência da Computação.
+
+Distribuído sob a licença [MIT](./LICENSE).
+
+---
+
+## Testes e Qualidade
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest --cov=app        # 130+ testes automatizados (≥ 90% de cobertura), sem necessidade de Docker
+ruff check app tests    # análise estática
+alembic upgrade head    # migrações do banco (alembic check valida coerência com os modelos)
+```
+
+O pipeline de CI (`.github/workflows/ci.yml`) executa lint, testes com cobertura, build do frontend e build das
+imagens Docker a cada push/PR.
+
+## Documentação Acadêmica
+
+| Documento | Conteúdo |
+|---|---|
+| [`proposta_tcc.txt`](./proposta_tcc.txt) | Proposta, problema, objetivos |
+| [`docs/REQUISITOS.md`](./docs/REQUISITOS.md) | RF/RNF numerados, casos de uso e rastreabilidade para os testes |
+| [`docs/ARQUITETURA.md`](./docs/ARQUITETURA.md) | Diagramas (arquitetura, sequência, estados, ER), decisões de projeto, migrações |
+| [`docs/AMEACAS_E_LIMITACOES.md`](./docs/AMEACAS_E_LIMITACOES.md) | Modelo de ameaças STRIDE, limitações e trabalhos futuros |
+| [`docs/METODOLOGIA_AVALIACAO.md`](./docs/METODOLOGIA_AVALIACAO.md) | Hipóteses, experimentos reprodutíveis, estatística, questionário SUS |
+| [`docs/ROTEIRO_BENCHMARK_COMPARATIVO.md`](./docs/ROTEIRO_BENCHMARK_COMPARATIVO.md) | Roteiro passo a passo de comparação empírica (**DeployDock vs Portainer CE vs Coolify v4**) |
+| [`docs/TRABALHOS_RELACIONADOS.md`](./docs/TRABALHOS_RELACIONADOS.md) | Fundamentação teórica e comparação com Portainer CE e Coolify v4 |
+| [`scripts/bench_deploy_downtime.py`](./scripts/bench_deploy_downtime.py) · [`scripts/bench_multiplatform_compare.py`](./scripts/bench_multiplatform_compare.py) | Benchmarks automatizados de downtime (Recreate vs Blue/Green) e comparação multi-plataforma com IC 95 % |
+| [`SECURITY.md`](./SECURITY.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Política de segurança e guia de contribuição |
+
+## Segurança em Produção
+
+Com `ENVIRONMENT=production` o backend **recusa iniciar** se `SECRET_KEY`, `GITHUB_WEBHOOK_SECRET` ou a senha do
+administrador inicial usarem valores padrão. Todos os WebSockets exigem JWT (`?token=`). Veja
+[`docs/AMEACAS_E_LIMITACOES.md`](./docs/AMEACAS_E_LIMITACOES.md) para riscos conhecidos (ex.: exposição do `docker.sock`).

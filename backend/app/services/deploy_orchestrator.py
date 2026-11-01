@@ -14,13 +14,15 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.routing import build_traefik_labels, public_url as build_public_url, slugify
+from app.core.routing import build_traefik_labels, slugify
+from app.core.routing import public_url as build_public_url
 from app.core.security import decrypt_value
 from app.models.deployment import Deployment
 from app.models.project import Project
@@ -84,6 +86,10 @@ def _ensure_auto_dockerfile(repo_path: str, dockerfile_rel_path: str) -> None:
         raise RuntimeError(
             f"Arquivo '{dockerfile_rel_path}' não foi encontrado na raiz do repositório."
         )
+
+
+class CandidateRejected(RuntimeError):
+    """Candidato blue/green reprovado antes do corte de tráfego (versão antiga intacta)."""
 
 
 class DeployOrchestrator:
@@ -215,17 +221,23 @@ class DeployOrchestrator:
             await ws_manager.broadcast(deploy_topic, {"status": "deploying", "step": 3})
             logger.info(f"[Deploy {deployment.id}] Substituindo contêiner...")
 
-            try:
-                old_container = await self.docker.get_container(container_name)
-                deployment.previous_image_id = old_container.get("image")
-                await self.db.commit()
-                await self.docker.stop_container(container_name, timeout=15)
-                await self.docker.remove_container(container_name, force=True)
-                logger.info(f"[Deploy {deployment.id}] Contêiner anterior removido.")
-            except (ValueError, Exception):
-                logger.info(f"[Deploy {deployment.id}] Nenhum contêiner anterior encontrado.")
+            strategy = getattr(project, "deploy_strategy", None) or "recreate"
+            if strategy == "blue_green":
+                new_container = await self._swap_blue_green(
+                    project, image_tag, container_name, deployment, deploy_topic
+                )
+            else:
+                try:
+                    old_container = await self.docker.get_container(container_name)
+                    deployment.previous_image_id = old_container.get("image")
+                    await self.db.commit()
+                    await self.docker.stop_container(container_name, timeout=15)
+                    await self.docker.remove_container(container_name, force=True)
+                    logger.info(f"[Deploy {deployment.id}] Contêiner anterior removido.")
+                except (ValueError, Exception):
+                    logger.info(f"[Deploy {deployment.id}] Nenhum contêiner anterior encontrado.")
 
-            new_container = await self._run_app_container(project, image_tag, container_name)
+                new_container = await self._run_app_container(project, image_tag, container_name)
             logger.info(
                 f"[Deploy {deployment.id}] Novo contêiner iniciado: {new_container.short_id} "
                 f"→ {project.public_url}"
@@ -297,7 +309,11 @@ class DeployOrchestrator:
             deployment.duration_seconds = round(time.monotonic() - start_time, 2)
             await self.db.commit()
 
-            if deployment.previous_image_id:
+            if isinstance(e, CandidateRejected):
+                # Blue/green: a versão anterior nunca saiu do ar; não há o que reverter.
+                deployment.error_message = f"{e} (versão anterior mantida no ar)"
+                await self.db.commit()
+            elif deployment.previous_image_id:
                 try:
                     await self._perform_rollback(
                         project, deployment.previous_image_id, container_name, deploy_topic
@@ -509,8 +525,8 @@ class DeployOrchestrator:
         conectado à rede compartilhada, com variáveis de ambiente do projeto,
         limites de CPU/RAM (Quotas), hardening de segurança e labels de roteamento.
         """
-        from app.models.environment import EnvironmentVariable
         from app.core.waf import security_manager
+        from app.models.environment import EnvironmentVariable
 
         env_vars: dict[str, str] = {}
         try:
@@ -576,6 +592,97 @@ class DeployOrchestrator:
             return self.docker.client.containers.run(image, **run_kwargs)
 
         return await asyncio.to_thread(_run)
+
+    # ----------------------------------------------------------------
+    # Estratégia Blue/Green (sobreposição sem janela de indisponibilidade)
+    # ----------------------------------------------------------------
+
+    async def _swap_blue_green(
+        self,
+        project: Project,
+        image_tag: str,
+        container_name: str,
+        deployment: Deployment,
+        deploy_topic: str,
+    ):
+        """
+        Troca de versão sem derrubar a anterior antes da hora:
+
+        1. sobe o candidato com um nome temporário e as MESMAS labels do Traefik (o proxy passa a
+           balancear entre a versão antiga e a nova, pois o serviço é identificado pela label);
+        2. valida o candidato (health check pela rede interna ou estabilidade em execução);
+        3. se reprovado, descarta o candidato e mantém a versão antiga (`CandidateRejected`);
+        4. se aprovado, aguarda o período de drenagem, remove a versão antiga e renomeia o candidato.
+        """
+        has_old = False
+        try:
+            old_container = await self.docker.get_container(container_name)
+            deployment.previous_image_id = old_container.get("image")
+            await self.db.commit()
+            has_old = True
+        except (ValueError, Exception):
+            logger.info(f"[Deploy {deployment.id}] Nenhum contêiner anterior; blue/green sem sobreposição.")
+
+        candidate_name = f"{container_name}-bg-{str(deployment.id)[:8]}"
+        await self._discard_container(candidate_name)
+
+        await ws_manager.broadcast(deploy_topic, {"status": "deploying", "step": 3, "strategy": "blue_green"})
+        candidate = await self._run_app_container(project, image_tag, candidate_name)
+        logger.info(f"[Deploy {deployment.id}] Candidato blue/green iniciado: {candidate_name}")
+
+        try:
+            await self._wait_candidate_ready(project, image_tag, candidate_name)
+        except Exception as exc:
+            await self._discard_container(candidate_name)
+            raise CandidateRejected(f"Candidato blue/green reprovado: {exc}") from exc
+
+        if has_old:
+            # drenagem: dá tempo ao Traefik de registrar o candidato antes de remover a versão antiga
+            await asyncio.sleep(settings.BLUE_GREEN_DRAIN_SECONDS)
+            try:
+                await self.docker.stop_container(container_name, timeout=15)
+            except Exception as exc:
+                logger.warning(f"[Deploy {deployment.id}] Falha ao parar versão anterior: {exc}")
+            await self.docker.remove_container(container_name, force=True)
+            logger.info(f"[Deploy {deployment.id}] Versão anterior removida após corte blue/green.")
+
+        await self.docker.rename_container(candidate_name, container_name)
+        return candidate
+
+    async def _discard_container(self, name: str) -> None:
+        """Remove um contêiner (ignora se não existir)."""
+        try:
+            await self.docker.remove_container(name, force=True)
+        except Exception:
+            pass
+
+    async def _wait_candidate_ready(self, project: Project, image: str, name: str) -> None:
+        """Valida o candidato; levanta RuntimeError se ele não estiver saudável."""
+        if project.health_check_url:
+            port = await asyncio.to_thread(self._resolve_port, project, image)
+            parsed = urlparse(project.health_check_url)
+            path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
+            internal_url = f"http://{name}:{port}{path}"
+            healthy = await self._run_health_check(
+                internal_url,
+                retries=settings.HEALTH_CHECK_RETRIES,
+                timeout=settings.HEALTH_CHECK_TIMEOUT,
+            )
+            if not healthy:
+                raise RuntimeError(f"health check interno falhou em {internal_url}")
+        else:
+            await asyncio.sleep(settings.BLUE_GREEN_MIN_UPTIME_SECONDS)
+
+        info = await self.docker.get_container(name)
+        if info.get("status") != "running":
+            raise RuntimeError(f"contêiner candidato não está em execução (status={info.get('status')})")
+
+    def _resolve_port(self, project: Project, image: str) -> int:
+        port = project.container_port
+        if not port:
+            exposed = self.docker.get_image_exposed_ports(image)
+            port = exposed[0] if exposed else 80
+        return port
 
     async def apply_routing(self, project: Project) -> bool:
         """

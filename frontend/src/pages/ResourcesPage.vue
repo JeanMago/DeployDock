@@ -12,7 +12,6 @@ import {
   Box,
   FolderGit2,
   AlertTriangle,
-  ArrowUpDown,
   CheckCircle2,
   Download,
   Upload,

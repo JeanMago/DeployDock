@@ -57,5 +57,5 @@ RUN mkdir -p /app/repos && chown -R deploydock:deploydock /app
 
 EXPOSE 8000
 
-# Production server with multiple workers
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 1 worker: WAF/rate-limit, WebSocket manager e uptime monitor mantem estado em memoria do processo.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

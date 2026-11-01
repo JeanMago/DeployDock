@@ -2,7 +2,6 @@
 import { ref, computed, onMounted } from 'vue';
 import {
   HardDrive,
-  Server,
   Info,
   Trash2,
   CheckCircle2,

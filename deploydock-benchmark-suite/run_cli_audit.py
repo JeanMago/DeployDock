@@ -28,6 +28,16 @@ async def main() -> int:
         default=None,
         help="URL da API do DeployDock (ex: http://localhost:8000)",
     )
+    parser.add_argument(
+        "--target-url",
+        default=None,
+        help="URL universal do serviço/plataforma alvo para testar WAF, headers e latência (Portainer, Coolify, CapRover, DeployDock, etc.)",
+    )
+    parser.add_argument(
+        "--export-snapshot",
+        default=None,
+        help="Caminho opcional para salvar o snapshot JSON desta plataforma para comparação cruzada",
+    )
     parser.add_argument("--user", default="admin", help="Usuário da API DeployDock")
     parser.add_argument("--password", default="admin123", help="Senha da API DeployDock")
     parser.add_argument(
@@ -45,10 +55,17 @@ async def main() -> int:
     report = await execute_complete_audit(
         platform_label=args.platform,
         deploydock_api_url=args.api_url,
+        target_url=args.target_url,
         username=args.user,
         password=args.password,
         intensity=args.intensity,
     )
+
+    if args.export_snapshot:
+        os.makedirs(os.path.dirname(os.path.abspath(args.export_snapshot)), exist_ok=True)
+        with open(args.export_snapshot, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        print(f"\n💾 Snapshot exportado para comparação: {args.export_snapshot}")
 
     snap = report["current_platform_snapshot"]
     e2e = report["deploydock_e2e"]

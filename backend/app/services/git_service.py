@@ -25,9 +25,10 @@ if not shutil.which("git"):
 
 os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
-import git
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+import git
 
 
 def _inject_git_token(repo_url: str, git_token: Optional[str]) -> str:
