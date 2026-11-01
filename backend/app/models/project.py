@@ -37,6 +37,12 @@ class Project(Base):
     deploy_strategy: Mapped[str | None] = mapped_column(
         String(20), default="recreate", server_default="recreate", nullable=True
     )
+    # --- Escalonamento Horizontal (Réplicas) e Autoscaling por Métricas ---
+    replicas: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    autoscale_enabled: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
+    autoscale_min_replicas: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    autoscale_max_replicas: Mapped[int | None] = mapped_column(Integer, default=3, nullable=True)
+    autoscale_cpu_target: Mapped[int | None] = mapped_column(Integer, default=75, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

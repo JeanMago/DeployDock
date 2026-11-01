@@ -1,9 +1,9 @@
 import type {
   Container, ContainerDetail, ContainerLogsResponse, ContainerExecResponse,
-  Project, ProjectCreate, ProjectUpdate, ProjectPreview, Deployment,
-  EnvironmentVariable, SystemInfo, SystemResourcesOverview, PruneResult, RoutingConfig,
-  User, TokenResponse, NotificationOverview, NotificationConfig, NotificationHistoryItem,
-  ProjectHealthcheck
+  Project, ProjectCreate, ProjectUpdate, ProjectPreview, ProjectMember, Deployment,
+  DeploymentDiagnosis, EnvironmentVariable, SystemInfo, SystemResourcesOverview,
+  PruneResult, RoutingConfig, User, TokenResponse, NotificationOverview,
+  NotificationConfig, NotificationHistoryItem, ProjectHealthcheck
 } from './types';
 
 const API_BASE = '/api/v1';
@@ -123,12 +123,26 @@ async function downloadBlob(endpoint: string, fallbackFilename: string): Promise
 
 export const api = {
   auth: {
-    login: (credentials: { username: string; password: string }) =>
+    login: (credentials: { username: string; password: string; otp_code?: string }) =>
       request<TokenResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),
       }),
     me: () => request<User>('/auth/me'),
+    setup2FA: () =>
+      request<{ secret: string; otpauth_uri: string; totp_enabled: boolean }>('/auth/2fa/setup', {
+        method: 'POST',
+      }),
+    enable2FA: (code: string) =>
+      request<{ totp_enabled: boolean; message: string }>('/auth/2fa/enable', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    disable2FA: (code: string) =>
+      request<{ totp_enabled: boolean; message: string }>('/auth/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
     listUsers: () => request<User[]>('/auth/users'),
     createUser: (data: any) =>
       request<User>('/auth/users', {
@@ -257,6 +271,39 @@ export const api = {
     update: (id: string, data: ProjectUpdate) => request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => request<{message: string}>(`/projects/${id}`, { method: 'DELETE' }),
     triggerDeploy: (id: string) => request<Deployment>(`/projects/${id}/deploy`, { method: 'POST' }),
+    scale: (
+      id: string,
+      payload: {
+        replicas: number;
+        autoscale_enabled?: boolean;
+        autoscale_min_replicas?: number;
+        autoscale_max_replicas?: number;
+        autoscale_cpu_target?: number;
+      }
+    ) =>
+      request<any>(`/projects/${id}/scale`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listMembers: (projectId: string) =>
+      request<ProjectMember[]>(`/projects/${projectId}/members`),
+    addMember: (
+      projectId: string,
+      userOrPayload: string | { user_id?: string; username?: string; role: 'admin' | 'developer' | 'viewer' },
+      role?: 'admin' | 'developer' | 'viewer'
+    ) =>
+      request<ProjectMember>(`/projects/${projectId}/members`, {
+        method: 'POST',
+        body: JSON.stringify(
+          typeof userOrPayload === 'string'
+            ? { user_id: userOrPayload, role: role || 'developer' }
+            : userOrPayload
+        ),
+      }),
+    removeMember: (projectId: string, userId: string) =>
+      request<{ removed: string }>(`/projects/${projectId}/members/${userId}`, {
+        method: 'DELETE',
+      }),
     listEnv: (id: string) => request<EnvironmentVariable[]>(`/projects/${id}/env`),
     saveEnv: (
       id: string,
@@ -301,7 +348,105 @@ export const api = {
   deployments: {
     list: (projectId?: string) => request<Deployment[]>(projectId ? `/deployments?project_id=${projectId}` : '/deployments'),
     get: (id: string) => request<Deployment>(`/deployments/${id}`),
-    rollback: (id: string) => request<Deployment>(`/deployments/${id}/rollback`, { method: 'POST' })
+    rollback: (id: string) => request<Deployment>(`/deployments/${id}/rollback`, { method: 'POST' }),
+    diagnose: (id: string) => request<DeploymentDiagnosis>(`/deployments/${id}/diagnose`),
+  },
+  paas: {
+    overview: () => request<any>('/paas/overview'),
+    listDatabases: () => request<any[]>('/paas/databases'),
+    createDatabase: (data: {
+      name: string;
+      engine: string;
+      database_name?: string;
+      username?: string;
+      password?: string;
+      expose_port?: number | null;
+      memory_limit_mb?: number | null;
+    }) =>
+      request<any>('/paas/databases', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    deleteDatabase: (id: string) =>
+      request<any>(`/paas/databases/${id}`, { method: 'DELETE' }),
+    listTemplates: () => request<any[]>('/paas/templates'),
+    launchTemplate: (templateId: string, payload?: { app_name?: string; env_overrides?: Record<string, string> }) =>
+      request<any>(`/paas/templates/${templateId}/launch`, {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+      }),
+    getBackups: () => request<any>('/paas/backups'),
+    updateS3Config: (data: any) =>
+      request<any>('/paas/backups/s3-config', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    createBackupJob: (data: any) =>
+      request<any>('/paas/backups/jobs', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    runBackupJob: (jobId: string) =>
+      request<any>(`/paas/backups/jobs/${jobId}/run`, { method: 'POST' }),
+    deleteBackupJob: (jobId: string) =>
+      request<any>(`/paas/backups/jobs/${jobId}`, { method: 'DELETE' }),
+    listCrons: (projectId?: string) =>
+      request<any[]>(projectId ? `/paas/crons?project_id=${projectId}` : '/paas/crons'),
+    createCron: (data: { project_id: string; name: string; command: string; cron_expression: string }) =>
+      request<any>('/paas/crons', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    runCron: (cronId: string) =>
+      request<any>(`/paas/crons/${cronId}/run`, { method: 'POST' }),
+    deleteCron: (cronId: string) =>
+      request<any>(`/paas/crons/${cronId}`, { method: 'DELETE' }),
+    listRegistries: () => request<any[]>('/paas/registries'),
+    addRegistry: (data: { name: string; server_address: string; username: string; password: string }) =>
+      request<any>('/paas/registries', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    deleteRegistry: (id: string) =>
+      request<any>(`/paas/registries/${id}`, { method: 'DELETE' }),
+    getCloudflare: () => request<any>('/paas/cloudflare'),
+    updateCloudflareConfig: (data: any) =>
+      request<any>('/paas/cloudflare/config', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    upsertCloudflareRecord: (data: { type: string; name: string; content: string; proxied?: boolean }) =>
+      request<any>('/paas/cloudflare/records', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    syncProjectCloudflare: (projectId: string) =>
+      request<any>(`/paas/cloudflare/sync-project/${projectId}`, { method: 'POST' }),
+    deleteCloudflareRecord: (id: string) =>
+      request<any>(`/paas/cloudflare/records/${id}`, { method: 'DELETE' }),
+    getTraefik: () => request<any>('/paas/traefik'),
+    updateTraefikConfig: (data: any) =>
+      request<any>('/paas/traefik/config', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    addTraefikCertificate: (data: { domain: string; cert_pem: string; key_pem: string; issuer?: string }) =>
+      request<any>('/paas/traefik/certificates', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    deleteTraefikCertificate: (id: string) =>
+      request<any>(`/paas/traefik/certificates/${id}`, { method: 'DELETE' }),
+    diagnoseLogs: (data: { logs?: string; error_message?: string; status?: string }) =>
+      request<DeploymentDiagnosis>('/paas/diagnose', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    evaluateAutoscaler: (simulated_cpu_by_project?: Record<string, number>) =>
+      request<any>('/paas/autoscaler/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({ simulated_cpu_by_project }),
+      }),
   },
   system: {
     info: () => request<SystemInfo>('/system/info'),

@@ -18,10 +18,12 @@ import {
   Lock,
   Cpu,
   ShieldCheck,
+  Layers,
+  Users,
   X,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
-import type { Project, ProjectHealthcheck, ProjectPreview } from '@/services/types';
+import type { Project, ProjectHealthcheck, ProjectPreview, ProjectMember } from '@/services/types';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -45,6 +47,73 @@ const previewsList = ref<ProjectPreview[]>([]);
 const loadingPreviews = ref(false);
 const creatingPreview = ref(false);
 const newPreviewBranch = ref('feat-nova-interface');
+
+// Estado do Modal de Escalonamento Horizontal (Réplicas + Autoscaling) & RBAC por Projeto
+const scaleProject = ref<Project | null>(null);
+const scaleForm = ref({
+  replicas: 1,
+  autoscale_enabled: false,
+  autoscale_min_replicas: 1,
+  autoscale_max_replicas: 3,
+  autoscale_cpu_target: 75,
+});
+const savingScale = ref(false);
+const projectMembers = ref<ProjectMember[]>([]);
+const memberForm = ref({ username: '', role: 'developer' as 'admin' | 'developer' | 'viewer' });
+
+const openScaleAndRbacModal = async (p: Project) => {
+  scaleProject.value = p;
+  scaleForm.value = {
+    replicas: p.replicas || 1,
+    autoscale_enabled: !!p.autoscale_enabled,
+    autoscale_min_replicas: p.autoscale_min_replicas || 1,
+    autoscale_max_replicas: p.autoscale_max_replicas || 3,
+    autoscale_cpu_target: p.autoscale_cpu_target || 75,
+  };
+  try {
+    projectMembers.value = await api.projects.listMembers(p.id);
+  } catch {
+    projectMembers.value = [];
+  }
+};
+
+const handleSaveScale = async () => {
+  if (!scaleProject.value) return;
+  savingScale.value = true;
+  try {
+    await api.projects.scale(scaleProject.value.id, scaleForm.value);
+    await load();
+    alert('Escalonamento horizontal e política de Autoscaling atualizados!');
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao escalar réplicas do projeto.');
+  } finally {
+    savingScale.value = false;
+  }
+};
+
+const handleAddProjectMember = async () => {
+  if (!scaleProject.value || !memberForm.value.username.trim()) return;
+  try {
+    await api.projects.addMember(scaleProject.value.id, {
+      username: memberForm.value.username.trim(),
+      role: memberForm.value.role,
+    });
+    memberForm.value.username = '';
+    projectMembers.value = await api.projects.listMembers(scaleProject.value.id);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao adicionar membro RBAC ao projeto.');
+  }
+};
+
+const handleRemoveProjectMember = async (userId: string) => {
+  if (!scaleProject.value) return;
+  try {
+    await api.projects.removeMember(scaleProject.value.id, userId);
+    projectMembers.value = await api.projects.listMembers(scaleProject.value.id);
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao remover membro do projeto.');
+  }
+};
 
 const checkProjectHealth = async (id: string) => {
   checkingHealth.value[id] = true;
@@ -341,11 +410,19 @@ const handleProjectUpdated = () => {
             </div>
           </div>
 
-          <!-- Badges de Quotas de CPU/RAM e Auto-Heal -->
+          <!-- Badges de Quotas de CPU/RAM, Réplicas e Auto-Heal -->
           <div
-            v-if="p.memory_limit_mb || p.cpu_limit_cores || p.auto_heal !== false"
             class="flex flex-wrap items-center gap-1.5 text-[10px] font-mono"
           >
+            <button
+              @click="openScaleAndRbacModal(p)"
+              class="px-2 py-0.5 rounded bg-dock-accent/15 hover:bg-dock-accent/25 border border-dock-accent/30 text-dock-accent flex items-center gap-1 cursor-pointer"
+              title="Configurar Escalonamento Horizontal (Réplicas), Autoscaling e Membros RBAC"
+            >
+              <Layers class="w-3 h-3" />
+              {{ p.replicas || 1 }} {{ (p.replicas || 1) > 1 ? 'Réplicas' : 'Réplica' }}
+              <span v-if="p.autoscale_enabled">• Auto ({{ p.autoscale_min_replicas }}-{{ p.autoscale_max_replicas }})</span>
+            </button>
             <span
               v-if="p.memory_limit_mb || p.cpu_limit_cores"
               class="px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-dock-accent flex items-center gap-1"
@@ -513,6 +590,155 @@ const handleProjectUpdated = () => {
                   class="px-2.5 py-1.5 rounded bg-dock-surface hover:bg-dock-error/15 border border-dock-border text-dock-text-muted hover:text-dock-error flex items-center gap-1 cursor-pointer shrink-0"
                 >
                   <Trash2 class="w-3.5 h-3.5" /> Destruir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Escalonamento Horizontal (Réplicas + Autoscaling) & RBAC por Projeto -->
+    <div
+      v-if="scaleProject"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+    >
+      <div class="glass-panel w-full max-w-xl bg-dock-bg/95 border border-dock-border-light shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[88vh]">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-dock-border bg-dock-surface/40">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-dock-accent/15 text-dock-accent">
+              <Layers class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-dock-text">
+                Escalonamento Horizontal & RBAC Granular
+              </h3>
+              <p class="text-xs text-dock-text-dim">
+                {{ scaleProject.name }} • Réplicas com Load Balancing Traefik e Controle de Membros
+              </p>
+            </div>
+          </div>
+          <button
+            @click="scaleProject = null"
+            class="p-1.5 text-dock-text-muted hover:text-dock-text rounded-lg hover:bg-dock-surface transition-colors cursor-pointer"
+          >
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <div class="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
+          <!-- Seção 1: Réplicas & Autoscaling -->
+          <div class="p-4 rounded-xl bg-dock-surface/40 border border-dock-border space-y-3">
+            <div class="font-semibold text-dock-text flex items-center gap-2">
+              <Layers class="w-4 h-4 text-dock-accent" />
+              Réplicas Multi-Contêiner & Autoscaling por CPU
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div>
+                <label class="block text-dock-text-muted mb-1">Réplicas Ativas</label>
+                <input
+                  v-model.number="scaleForm.replicas"
+                  type="number"
+                  min="1"
+                  max="10"
+                  class="w-full bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+                />
+              </div>
+              <div>
+                <label class="block text-dock-text-muted mb-1">Mín. Réplicas</label>
+                <input
+                  v-model.number="scaleForm.autoscale_min_replicas"
+                  type="number"
+                  min="1"
+                  max="10"
+                  class="w-full bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+                />
+              </div>
+              <div>
+                <label class="block text-dock-text-muted mb-1">Máx. Réplicas</label>
+                <input
+                  v-model.number="scaleForm.autoscale_max_replicas"
+                  type="number"
+                  min="1"
+                  max="10"
+                  class="w-full bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+                />
+              </div>
+              <div>
+                <label class="block text-dock-text-muted mb-1">Alvo CPU (%)</label>
+                <input
+                  v-model.number="scaleForm.autoscale_cpu_target"
+                  type="number"
+                  min="20"
+                  max="95"
+                  class="w-full bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+                />
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-1">
+              <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+                <input type="checkbox" v-model="scaleForm.autoscale_enabled" class="accent-dock-accent" />
+                <span>Habilitar Autoscaling Automático por Métricas de CPU</span>
+              </label>
+              <button
+                @click="handleSaveScale"
+                :disabled="savingScale"
+                class="px-4 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium cursor-pointer"
+              >
+                {{ savingScale ? 'Aplicando...' : 'Aplicar Escalonamento' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Seção 2: Controle de Acesso RBAC por Projeto -->
+          <div class="p-4 rounded-xl bg-dock-surface/40 border border-dock-border space-y-3">
+            <div class="font-semibold text-dock-text flex items-center gap-2">
+              <Users class="w-4 h-4 text-dock-accent" />
+              Membros com Permissão neste Projeto (RBAC Granular)
+            </div>
+            <p class="text-[11px] text-dock-text-dim">
+              Quando a lista possui membros vinculados, apenas eles (e administradores globais) podem visualizar ou fazer deploy deste projeto.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <input
+                v-model="memberForm.username"
+                type="text"
+                placeholder="Username (ex: dev1)"
+                class="flex-1 bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+              />
+              <select
+                v-model="memberForm.role"
+                class="bg-dock-bg border border-dock-border rounded px-2.5 py-1.5 font-mono text-dock-text"
+              >
+                <option value="developer">Developer (Deploy/Exec)</option>
+                <option value="viewer">Viewer (Leitura)</option>
+                <option value="admin">Admin do Projeto</option>
+              </select>
+              <button
+                @click="handleAddProjectMember"
+                class="px-3.5 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium cursor-pointer"
+              >
+                Vincular
+              </button>
+            </div>
+            <div v-if="projectMembers.length === 0" class="text-[11px] text-dock-text-dim italic">
+              Acesso padrão aberto à equipe global. Adicione membros acima para restringir o projeto.
+            </div>
+            <div v-else class="space-y-1.5">
+              <div
+                v-for="m in projectMembers"
+                :key="m.user_id"
+                class="px-3 py-1.5 rounded bg-dock-bg border border-dock-border flex items-center justify-between"
+              >
+                <div class="font-mono">
+                  <span class="text-dock-text font-semibold">{{ m.username }}</span>
+                  <span class="ml-2 px-1.5 py-0.5 rounded bg-dock-surface text-dock-accent uppercase text-[10px]">{{ m.role }}</span>
+                </div>
+                <button
+                  @click="handleRemoveProjectMember(m.user_id)"
+                  class="text-dock-text-dim hover:text-dock-error cursor-pointer"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>

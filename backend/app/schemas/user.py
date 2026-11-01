@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class UserBase(BaseModel):
@@ -18,16 +18,22 @@ class UserCreate(UserBase):
 
 class UserRead(UserBase):
     id: uuid.UUID
+    totp_enabled: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("totp_enabled", mode="before")
+    @classmethod
+    def _coerce_totp_enabled(cls, v):
+        return bool(v)
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+    otp_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):

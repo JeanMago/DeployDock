@@ -9,20 +9,44 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  Sparkles,
 } from 'lucide-vue-next';
 import StatusBadge from '@/components/common/StatusBadge.vue';
-import type { Deployment } from '@/services/types';
+import { api } from '@/services/api';
+import type { Deployment, DeploymentDiagnosis } from '@/services/types';
 
 defineProps<{ deployments: Deployment[] }>();
 defineEmits<{ (e: 'rollback', id: string): void }>();
 
 const expandedLogs = ref<Set<string>>(new Set());
+const diagnoses = ref<Record<string, DeploymentDiagnosis>>({});
+const diagnosingId = ref<string | null>(null);
 
 const toggleLogs = (id: string) => {
   const next = new Set(expandedLogs.value);
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expandedLogs.value = next;
+};
+
+const runDiagnosis = async (id: string) => {
+  if (diagnoses.value[id]) {
+    const copy = { ...diagnoses.value };
+    delete copy[id];
+    diagnoses.value = copy;
+    return;
+  }
+  diagnosingId.value = id;
+  try {
+    diagnoses.value = {
+      ...diagnoses.value,
+      [id]: await api.deployments.diagnose(id),
+    };
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao executar diagnóstico inteligente.');
+  } finally {
+    diagnosingId.value = null;
+  }
 };
 
 const formatDate = (date: string) => new Date(date).toLocaleString('pt-BR');
@@ -63,7 +87,17 @@ const formatDate = (date: string) => new Date(date).toLocaleString('pt-BR');
           </div>
         </div>
 
-        <div class="flex items-center gap-2 self-start sm:self-auto shrink-0">
+        <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto shrink-0">
+          <button
+            @click="runDiagnosis(dep.id)"
+            :disabled="diagnosingId === dep.id"
+            class="px-2.5 py-1 text-xs font-mono bg-dock-accent/15 hover:bg-dock-accent/25 border border-dock-accent/30 text-dock-accent rounded transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Diagnóstico Inteligente de Causa Raiz e Solução (Estilo Ployter)"
+          >
+            <Sparkles class="w-3.5 h-3.5" />
+            <span>{{ diagnosingId === dep.id ? 'Analisando...' : diagnoses[dep.id] ? 'Ocultar Diagnóstico' : 'Diagnosticar (IA)' }}</span>
+          </button>
+
           <button
             v-if="dep.build_logs || dep.error_message"
             @click="toggleLogs(dep.id)"
@@ -93,6 +127,32 @@ const formatDate = (date: string) => new Date(date).toLocaleString('pt-BR');
       >
         <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
         <span class="break-all">{{ dep.error_message }}</span>
+      </div>
+
+      <!-- Painel de Diagnóstico Inteligente de Falhas -->
+      <div
+        v-if="diagnoses[dep.id]"
+        class="mx-4 mb-3 p-3.5 rounded-lg bg-dock-bg border border-dock-accent/40 space-y-2 text-xs"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <Sparkles class="w-4 h-4 text-dock-accent" />
+            <span class="font-semibold text-dock-text">{{ diagnoses[dep.id]?.title }}</span>
+            <span class="px-2 py-0.5 rounded bg-dock-accent/15 text-dock-accent font-mono text-[10px]">
+              {{ diagnoses[dep.id]?.category }}
+            </span>
+          </div>
+          <span class="font-mono text-[11px] text-dock-success">
+            Confiança: {{ diagnoses[dep.id]?.confidence }}%
+          </span>
+        </div>
+        <p class="text-dock-text-muted">{{ diagnoses[dep.id]?.root_cause }}</p>
+        <div class="space-y-1 pt-1">
+          <div class="text-[11px] font-mono uppercase text-dock-text-dim">Recomendações de Correção:</div>
+          <ul class="list-disc list-inside space-y-1 text-dock-text">
+            <li v-for="(step, idx) in diagnoses[dep.id]?.recommendations" :key="idx">{{ step }}</li>
+          </ul>
+        </div>
       </div>
 
       <!-- Console Expansível de Build Logs -->

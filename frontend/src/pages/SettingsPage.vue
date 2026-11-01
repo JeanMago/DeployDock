@@ -52,6 +52,62 @@ const currentPass = ref('');
 const newPass = ref('');
 const changingPass = ref(false);
 
+// Autenticação em Duas Etapas (2FA / TOTP RFC 6238)
+const totpSetupData = ref<{ secret: string; otpauth_uri: string } | null>(null);
+const totpOtpCode = ref('');
+const totpDisablePass = ref('');
+const loadingTotp = ref(false);
+
+const handleSetup2FA = async () => {
+  loadingTotp.value = true;
+  try {
+    totpSetupData.value = await api.auth.setup2FA();
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao gerar segredo 2FA.');
+  } finally {
+    loadingTotp.value = false;
+  }
+};
+
+const handleEnable2FA = async () => {
+  if (!totpOtpCode.value.trim()) {
+    alert('Digite o código de 6 dígitos do aplicativo autenticador.');
+    return;
+  }
+  loadingTotp.value = true;
+  try {
+    await api.auth.enable2FA(totpOtpCode.value.trim());
+    totpSetupData.value = null;
+    totpOtpCode.value = '';
+    if (currentUser.value) currentUser.value.totp_enabled = true;
+    await load();
+    alert('Autenticação em Duas Etapas (2FA/TOTP) ativada com sucesso!');
+  } catch (e: any) {
+    alert(e?.message || 'Código TOTP inválido.');
+  } finally {
+    loadingTotp.value = false;
+  }
+};
+
+const handleDisable2FA = async () => {
+  if (!totpDisablePass.value) {
+    alert('Informe sua senha atual para desativar o 2FA.');
+    return;
+  }
+  loadingTotp.value = true;
+  try {
+    await api.auth.disable2FA(totpDisablePass.value);
+    totpDisablePass.value = '';
+    if (currentUser.value) currentUser.value.totp_enabled = false;
+    await load();
+    alert('2FA desativado.');
+  } catch (e: any) {
+    alert(e?.message || 'Erro ao desativar 2FA.');
+  } finally {
+    loadingTotp.value = false;
+  }
+};
+
 // Gerador de .env para Produção (Oracle Cloud / Hostgrid)
 const envGen = ref({
   serverIp: '150.230.10.25',
@@ -560,10 +616,10 @@ const prune = async () => {
         <pre class="p-3 rounded bg-dock-bg border border-dock-border font-mono text-[11px] text-dock-text overflow-x-auto leading-relaxed">{{ generatedEnvContent }}</pre>
       </div>
 
-      <!-- 4. Alterar Senha da Conta Atual -->
-      <div class="glass-panel p-5 space-y-3">
+      <!-- 4. Alterar Senha da Conta Atual + Autenticação em Duas Etapas (2FA / TOTP) -->
+      <div class="glass-panel p-5 space-y-4">
         <h3 class="flex items-center gap-2 font-semibold text-sm border-b border-dock-border pb-2.5 text-dock-text">
-          <KeyRound class="w-4 h-4 text-dock-accent" /> Alterar Minha Senha ({{ currentUser?.username }})
+          <KeyRound class="w-4 h-4 text-dock-accent" /> Segurança da Minha Conta ({{ currentUser?.username }}) • Senha & 2FA (TOTP)
         </h3>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <input
@@ -585,6 +641,88 @@ const prune = async () => {
           >
             {{ changingPass ? 'Salvando...' : 'Atualizar Senha' }}
           </button>
+        </div>
+
+        <!-- Seção 2FA / TOTP (RFC 6238) -->
+        <div class="p-3.5 rounded bg-dock-bg border border-dock-border space-y-3 text-xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div class="font-semibold text-dock-text flex items-center gap-2">
+                <Shield class="w-4 h-4 text-dock-accent" />
+                Autenticação em Duas Etapas (2FA / TOTP — Google Authenticator, Authy, 1Password)
+              </div>
+              <div class="text-dock-text-dim mt-0.5">
+                Protege o login com código temporário de 6 dígitos (RFC 6238).
+              </div>
+            </div>
+            <span
+              class="px-2.5 py-1 rounded font-mono text-[11px] border self-start sm:self-auto"
+              :class="
+                currentUser?.totp_enabled
+                  ? 'bg-dock-success/15 text-dock-success border-dock-success/30'
+                  : 'bg-dock-surface text-dock-text-muted border-dock-border'
+              "
+            >
+              {{ currentUser?.totp_enabled ? '2FA ATIVO' : '2FA DESATIVADO' }}
+            </span>
+          </div>
+
+          <div v-if="!currentUser?.totp_enabled" class="space-y-3">
+            <button
+              v-if="!totpSetupData"
+              @click="handleSetup2FA"
+              :disabled="loadingTotp"
+              class="px-3.5 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium cursor-pointer"
+            >
+              {{ loadingTotp ? 'Gerando...' : 'Configurar 2FA Agora' }}
+            </button>
+
+            <div v-else class="p-3 rounded bg-dock-surface border border-dock-border space-y-2.5">
+              <div class="text-dock-text">
+                1. Adicione a chave secreta Base32 abaixo no seu app autenticador (ou copie a URI TOTP):
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+                <div class="p-2 rounded bg-dock-bg border border-dock-border text-dock-accent break-all">
+                  Segredo: {{ totpSetupData.secret }}
+                </div>
+                <div class="p-2 rounded bg-dock-bg border border-dock-border text-dock-text-dim break-all">
+                  {{ totpSetupData.otpauth_uri }}
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <input
+                  v-model="totpOtpCode"
+                  type="text"
+                  maxlength="8"
+                  placeholder="Código de 6 dígitos (ex: 123456)"
+                  class="bg-dock-bg border border-dock-border rounded px-3 py-1.5 font-mono text-dock-text outline-none focus:border-dock-accent"
+                />
+                <button
+                  @click="handleEnable2FA"
+                  :disabled="loadingTotp"
+                  class="px-3.5 py-1.5 rounded bg-dock-success/20 hover:bg-dock-success/30 border border-dock-success/40 text-dock-success font-medium cursor-pointer"
+                >
+                  Confirmar e Ativar 2FA
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="flex flex-wrap items-center gap-2">
+            <input
+              v-model="totpDisablePass"
+              type="password"
+              placeholder="Confirme sua senha atual para desativar o 2FA"
+              class="flex-1 min-w-[240px] bg-dock-surface border border-dock-border rounded px-3 py-1.5 font-mono text-dock-text outline-none"
+            />
+            <button
+              @click="handleDisable2FA"
+              :disabled="loadingTotp"
+              class="px-3.5 py-1.5 rounded bg-dock-error/15 hover:bg-dock-error/25 border border-dock-error/30 text-dock-error font-medium cursor-pointer"
+            >
+              Desativar 2FA
+            </button>
+          </div>
         </div>
       </div>
 

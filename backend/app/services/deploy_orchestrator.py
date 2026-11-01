@@ -2,7 +2,7 @@
 Orquestrador de Deploy.
 
 Implementa o pipeline completo de deploy automático:
-Webhook → Clone/Pull (com suporte a Token Git Privado) → Build → Deploy (com Quotas de CPU/RAM)
+Webhook → Clone/Pull (com suporte a Token Git Privado) → Build → Deploy (com Quotas de CPU/RAM e Réplicas)
 → Health Check → Rollback (em caso de falha) + Notificações Multicanal + Preview Deployments.
 """
 
@@ -47,10 +47,20 @@ def _extract_git_token(project: Project) -> str | None:
 
 
 def _ensure_auto_dockerfile(repo_path: str, dockerfile_rel_path: str) -> None:
-    """Auto-detecta stack (HTML/Nginx, Node.js, Python, Go) se o repositório não tiver Dockerfile."""
+    """
+    Auto-detecta stack (Zero-Config estilo Nixpacks/Railpack) se o repositório não tiver Dockerfile:
+    HTML/Nginx, Bun, Node.js, Python (requirements.txt / pyproject.toml / Pipfile),
+    Go, Rust, PHP/Laravel, Ruby/Rails, Java (Maven/Gradle) e .NET (C#).
+    """
     dockerfile_full_path = os.path.join(repo_path, dockerfile_rel_path)
     if os.path.exists(dockerfile_full_path):
         return
+
+    has_csproj = False
+    try:
+        has_csproj = any(f.endswith(".csproj") for f in os.listdir(repo_path))
+    except Exception:
+        pass
 
     if os.path.exists(os.path.join(repo_path, "index.html")):
         with open(dockerfile_full_path, "w", encoding="utf-8") as f:
@@ -59,6 +69,18 @@ def _ensure_auto_dockerfile(repo_path: str, dockerfile_rel_path: str) -> None:
                 "COPY . /usr/share/nginx/html\n"
                 "EXPOSE 80\n"
                 'CMD ["nginx", "-g", "daemon off;"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "bun.lockb")) or os.path.exists(
+        os.path.join(repo_path, "bunfig.toml")
+    ):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM oven/bun:1-alpine\n"
+                "WORKDIR /app\n"
+                "COPY . .\n"
+                "RUN bun install --production\n"
+                "EXPOSE 3000\n"
+                'CMD ["bun", "run", "start"]\n'
             )
     elif os.path.exists(os.path.join(repo_path, "package.json")):
         with open(dockerfile_full_path, "w", encoding="utf-8") as f:
@@ -82,6 +104,86 @@ def _ensure_auto_dockerfile(repo_path: str, dockerfile_rel_path: str) -> None:
                 "EXPOSE 8000\n"
                 'CMD ["python", "main.py"]\n'
             )
+    elif os.path.exists(os.path.join(repo_path, "pyproject.toml")) or os.path.exists(
+        os.path.join(repo_path, "Pipfile")
+    ):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM python:3.11-slim\n"
+                "WORKDIR /app\n"
+                "COPY . .\n"
+                "RUN pip install --no-cache-dir .\n"
+                "EXPOSE 8000\n"
+                'CMD ["python", "main.py"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "go.mod")):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM golang:1.22-alpine AS builder\n"
+                "WORKDIR /src\n"
+                "COPY go.* ./\n"
+                "RUN go mod download\n"
+                "COPY . .\n"
+                "RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server .\n"
+                "FROM alpine:3.19\n"
+                "WORKDIR /app\n"
+                "COPY --from=builder /app/server ./server\n"
+                "EXPOSE 8080\n"
+                'CMD ["./server"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "Cargo.toml")):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM rust:1.77-alpine AS builder\n"
+                "WORKDIR /src\n"
+                "COPY . .\n"
+                "RUN cargo build --release\n"
+                "EXPOSE 8080\n"
+                'CMD ["cargo", "run", "--release"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "composer.json")) or os.path.exists(
+        os.path.join(repo_path, "index.php")
+    ):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM php:8.3-apache\n"
+                "WORKDIR /var/www/html\n"
+                "COPY . /var/www/html\n"
+                "EXPOSE 80\n"
+                'CMD ["apache2-foreground"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "Gemfile")):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM ruby:3.3-slim\n"
+                "WORKDIR /app\n"
+                "COPY Gemfile* ./\n"
+                "RUN bundle install\n"
+                "COPY . .\n"
+                "EXPOSE 3000\n"
+                'CMD ["bundle", "exec", "ruby", "app.rb"]\n'
+            )
+    elif os.path.exists(os.path.join(repo_path, "pom.xml")) or os.path.exists(
+        os.path.join(repo_path, "build.gradle")
+    ):
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM eclipse-temurin:21-jdk-alpine\n"
+                "WORKDIR /app\n"
+                "COPY . .\n"
+                "EXPOSE 8080\n"
+                'CMD ["./mvnw", "spring-boot:run"]\n'
+            )
+    elif has_csproj:
+        with open(dockerfile_full_path, "w", encoding="utf-8") as f:
+            f.write(
+                "FROM mcr.microsoft.com/dotnet/sdk:8.0\n"
+                "WORKDIR /app\n"
+                "COPY . .\n"
+                "RUN dotnet publish -c Release -o out\n"
+                "EXPOSE 8080\n"
+                'CMD ["dotnet", "run", "--urls", "http://0.0.0.0:8080"]\n'
+            )
     else:
         raise RuntimeError(
             f"Arquivo '{dockerfile_rel_path}' não foi encontrado na raiz do repositório."
@@ -93,7 +195,7 @@ class CandidateRejected(RuntimeError):
 
 
 class DeployOrchestrator:
-    """Orquestra o ciclo completo de deploy e preview environments de um projeto."""
+    """Orquestra o ciclo completo de deploy, réplicas horizontais e preview environments de um projeto."""
 
     def __init__(
         self,
@@ -111,7 +213,7 @@ class DeployOrchestrator:
         1. Cria registro de deployment
         2. Clone/Pull do repositório (suporta PAT para repositórios privados)
         3. Docker build com streaming de logs
-        4. Para contêiner antigo e inicia o novo (aplicando Quotas de CPU e RAM)
+        4. Para contêiner antigo e inicia o novo (aplicando Quotas de CPU, RAM e Réplicas Horizontais)
         5. Executa health check
         6. Em caso de falha, faz rollback automático e envia alerta
         """
@@ -215,7 +317,7 @@ class DeployOrchestrator:
             deployment.build_logs = "".join(build_logs)
             await self.db.commit()
 
-            # ── Etapa 3: Deploy (Container Swap) ──
+            # ── Etapa 3: Deploy (Container Swap + Réplicas Horizontais) ──
             deployment.status = "deploying"
             await self.db.commit()
             await ws_manager.broadcast(deploy_topic, {"status": "deploying", "step": 3})
@@ -238,9 +340,15 @@ class DeployOrchestrator:
                     logger.info(f"[Deploy {deployment.id}] Nenhum contêiner anterior encontrado.")
 
                 new_container = await self._run_app_container(project, image_tag, container_name)
+
+            # Sincronizar réplicas horizontais extras se project.replicas > 1
+            target_replicas = int(getattr(project, "replicas", None) or 1)
+            if target_replicas > 1:
+                await self._sync_extra_replicas(project, image_tag, container_name, target_replicas)
+
             logger.info(
                 f"[Deploy {deployment.id}] Novo contêiner iniciado: {new_container.short_id} "
-                f"→ {project.public_url}"
+                f"→ {project.public_url} (replicas={target_replicas})"
             )
 
             # ── Etapa 4: Health Check ──
@@ -310,7 +418,6 @@ class DeployOrchestrator:
             await self.db.commit()
 
             if isinstance(e, CandidateRejected):
-                # Blue/green: a versão anterior nunca saiu do ar; não há o que reverter.
                 deployment.error_message = f"{e} (versão anterior mantida no ar)"
                 await self.db.commit()
             elif deployment.previous_image_id:
@@ -354,6 +461,69 @@ class DeployOrchestrator:
                 pass
 
         return deployment
+
+    # ----------------------------------------------------------------
+    # Escalonamento Horizontal (Réplicas Multi-Contêiner com Traefik LB)
+    # ----------------------------------------------------------------
+
+    async def _sync_extra_replicas(
+        self,
+        project: Project,
+        image: str,
+        base_container_name: str,
+        target_replicas: int,
+    ) -> list[str]:
+        """
+        Garante que as réplicas extras `deploydock_<name>_r2` .. `deploydock_<name>_r{N}`
+        estejam em execução com as mesmas labels do Traefik (Load Balancing automático)
+        e remove réplicas excedentes.
+        """
+        active_names = [base_container_name]
+        for idx in range(2, max(1, target_replicas) + 1):
+            r_name = f"{base_container_name}_r{idx}"
+            await self._discard_container(r_name)
+            try:
+                await self._run_app_container(
+                    project,
+                    image,
+                    r_name,
+                    extra_labels={
+                        "deploydock.replica": str(idx),
+                        "deploydock.project_name": project.name,
+                    },
+                )
+                active_names.append(r_name)
+            except Exception as exc:
+                logger.warning(f"[Scale] Falha ao iniciar réplica {r_name}: {exc}")
+
+        # Remover réplicas excedentes (ex: se escalou de 4 para 2)
+        for idx in range(max(1, target_replicas) + 1, 11):
+            r_name = f"{base_container_name}_r{idx}"
+            await self._discard_container(r_name)
+
+        return active_names
+
+    async def scale_project(self, project: Project, target_replicas: int) -> dict[str, Any]:
+        """Escala horizontalmente o número de réplicas de um projeto em execução."""
+        replicas = max(1, min(10, int(target_replicas)))
+        base_container_name = f"deploydock_{project.name.lower()}"
+        image_tag = f"deploydock-{project.name.lower()}:latest"
+        try:
+            current = await self.docker.get_container(base_container_name)
+            image_tag = current.get("image") or image_tag
+        except Exception:
+            pass
+
+        active_containers = await self._sync_extra_replicas(
+            project, image_tag, base_container_name, replicas
+        )
+        return {
+            "project_id": str(project.id),
+            "project_name": project.name,
+            "replicas": replicas,
+            "containers": active_containers,
+            "load_balancer_url": project.public_url,
+        }
 
     # ----------------------------------------------------------------
     # Preview Deployments por Branch / Pull Request (Feature 5)
@@ -406,7 +576,6 @@ class DeployOrchestrator:
                         git_token=git_token,
                     )
                 except Exception:
-                    # Fallback para a branch principal caso a branch de preview seja simulada localmente
                     if os.path.exists(base_repo_path):
                         await asyncio.to_thread(
                             shutil.copytree, base_repo_path, preview_repo_path
@@ -637,7 +806,6 @@ class DeployOrchestrator:
             raise CandidateRejected(f"Candidato blue/green reprovado: {exc}") from exc
 
         if has_old:
-            # drenagem: dá tempo ao Traefik de registrar o candidato antes de remover a versão antiga
             await asyncio.sleep(settings.BLUE_GREEN_DRAIN_SECONDS)
             try:
                 await self.docker.stop_container(container_name, timeout=15)
@@ -699,6 +867,9 @@ class DeployOrchestrator:
         await self.docker.stop_container(container_name, timeout=10)
         await self.docker.remove_container(container_name, force=True)
         await self._run_app_container(project, image, container_name)
+        target_replicas = int(getattr(project, "replicas", None) or 1)
+        if target_replicas > 1:
+            await self._sync_extra_replicas(project, image, container_name, target_replicas)
         logger.info(f"[Routing/Env] {project.name} atualizado em {project.public_url}")
         return True
 

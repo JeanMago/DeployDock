@@ -27,6 +27,7 @@ from app.schemas.project import ProjectCreate, ProjectList, ProjectRead, Project
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
+from app.services.paas_service import paas_manager
 from app.services.uptime_service import uptime_monitor
 
 logger = logging.getLogger(__name__)
@@ -267,6 +268,12 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
                 "memory_limit_mb": p.memory_limit_mb,
                 "cpu_limit_cores": p.cpu_limit_cores,
                 "auto_heal": True if p.auto_heal is None else p.auto_heal,
+                "deploy_strategy": p.deploy_strategy or "recreate",
+                "replicas": p.replicas or 1,
+                "autoscale_enabled": bool(p.autoscale_enabled),
+                "autoscale_min_replicas": p.autoscale_min_replicas or 1,
+                "autoscale_max_replicas": p.autoscale_max_replicas or 3,
+                "autoscale_cpu_target": p.autoscale_cpu_target or 75,
             }
         )
     return out
@@ -376,6 +383,11 @@ async def create_project(
         cpu_limit_cores=project_in.cpu_limit_cores,
         auto_heal=True if project_in.auto_heal is None else project_in.auto_heal,
         deploy_strategy=project_in.deploy_strategy or "recreate",
+        replicas=project_in.replicas or 1,
+        autoscale_enabled=bool(project_in.autoscale_enabled),
+        autoscale_min_replicas=project_in.autoscale_min_replicas or 1,
+        autoscale_max_replicas=project_in.autoscale_max_replicas or 3,
+        autoscale_cpu_target=project_in.autoscale_cpu_target or 75,
     )
     db.add(db_obj)
     await db.commit()
@@ -450,6 +462,10 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
+    if not paas_manager.check_project_permission(
+        str(current_user.id), current_user.role, str(project.id), ("admin", "developer")
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para editar este projeto.")
     update_data = project_in.model_dump(exclude_unset=True)
 
     if "subdomain" in update_data and not update_data["subdomain"]:
@@ -499,6 +515,10 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
+    if not paas_manager.check_project_permission(
+        str(current_user.id), current_user.role, str(project.id), ("admin",)
+    ):
+        raise HTTPException(status_code=403, detail="Apenas administradores do projeto podem excluí-lo.")
     p_name = project.name
     await db.delete(project)
     await db.commit()
@@ -522,6 +542,10 @@ async def deploy_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_project(project_id, db)
+    if not paas_manager.check_project_permission(
+        str(current_user.id), current_user.role, str(project.id), ("admin", "developer")
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão de deploy neste projeto.")
     security_manager.log_event(
         event_type="deploy",
         severity="low",
@@ -533,6 +557,146 @@ async def deploy_project(
     )
     background_tasks.add_task(_trigger_deploy, str(project.id), "manual", project.branch)
     return {"message": "Deploy iniciado com sucesso"}
+
+
+# ----------------------------------------------------------------
+# Escalonamento Horizontal (Réplicas) & Autoscaling (Dokploy & Ployter)
+# ----------------------------------------------------------------
+
+
+class ProjectScalePayload(_BaseModel):
+    replicas: int = 1
+    autoscale_enabled: _Optional[bool] = None
+    autoscale_min_replicas: _Optional[int] = None
+    autoscale_max_replicas: _Optional[int] = None
+    autoscale_cpu_target: _Optional[int] = None
+
+
+@router.post("/{project_id}/scale", dependencies=[Depends(require_role("admin", "developer"))])
+async def scale_project_replicas(
+    project_id: uuid.UUID,
+    payload: ProjectScalePayload,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Escala horizontalmente o número de réplicas de contêineres do projeto e configura o Autoscaler."""
+    project = await get_project(project_id, db)
+    replicas = max(1, min(10, int(payload.replicas)))
+    project.replicas = replicas
+    if payload.autoscale_enabled is not None:
+        project.autoscale_enabled = payload.autoscale_enabled
+    if payload.autoscale_min_replicas is not None:
+        project.autoscale_min_replicas = max(1, min(10, int(payload.autoscale_min_replicas)))
+    if payload.autoscale_max_replicas is not None:
+        project.autoscale_max_replicas = max(1, min(10, int(payload.autoscale_max_replicas)))
+    if payload.autoscale_cpu_target is not None:
+        project.autoscale_cpu_target = max(10, min(99, int(payload.autoscale_cpu_target)))
+
+    await db.commit()
+    await db.refresh(project)
+
+    orchestrator = DeployOrchestrator(
+        docker_service=DockerService(),
+        git_service=GitService(),
+        db_session=db,
+    )
+    res = await orchestrator.scale_project(project, replicas)
+    security_manager.log_event(
+        event_type="deploy",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}/scale",
+        detail=(
+            f"Projeto '{project.name}' escalado para {replicas} réplica(s) "
+            f"(autoscale={'ON' if project.autoscale_enabled else 'OFF'})"
+        ),
+        user=current_user.username,
+    )
+    return {
+        **res,
+        "autoscale_enabled": bool(project.autoscale_enabled),
+        "autoscale_min_replicas": project.autoscale_min_replicas or 1,
+        "autoscale_max_replicas": project.autoscale_max_replicas or 3,
+        "autoscale_cpu_target": project.autoscale_cpu_target or 75,
+    }
+
+
+# ----------------------------------------------------------------
+# RBAC Granular por Projeto (Permissões de Membros por Projeto)
+# ----------------------------------------------------------------
+
+
+class ProjectMemberPayload(_BaseModel):
+    user_id: uuid.UUID
+    role: str = "developer"  # 'admin' | 'developer' | 'viewer'
+
+
+@router.get("/{project_id}/members")
+async def list_project_members(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista os membros e papéis granulares atribuídos a este projeto."""
+    await get_project(project_id, db)
+    return paas_manager.list_project_members(str(project_id))
+
+
+@router.post("/{project_id}/members", dependencies=[Depends(require_role("admin"))])
+async def add_project_member(
+    project_id: uuid.UUID,
+    payload: ProjectMemberPayload,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Atribui permissão granular (admin, developer, viewer) a um usuário em um projeto específico."""
+    project = await get_project(project_id, db)
+    user = (
+        await db.execute(select(User).where(User.id == payload.user_id))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    try:
+        member = paas_manager.set_project_member(
+            str(project.id), str(user.id), user.username, payload.role
+        )
+        security_manager.log_event(
+            event_type="rbac",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/projects/{project_id}/members",
+            detail=f"RBAC por projeto: '{user.username}' definido como '{payload.role}' em '{project.name}'",
+            user=current_user.username,
+        )
+        return member
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{project_id}/members/{user_id}", dependencies=[Depends(require_role("admin"))])
+async def remove_project_member(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a permissão granular de um usuário em um projeto específico."""
+    await get_project(project_id, db)
+    try:
+        res = paas_manager.remove_project_member(str(project_id), str(user_id))
+        security_manager.log_event(
+            event_type="rbac",
+            severity="low",
+            ip=security_manager.get_client_ip(request),
+            path=f"/api/v1/projects/{project_id}/members/{user_id}",
+            detail=f"Membro {user_id} removido do projeto {project_id}",
+            user=current_user.username,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/{project_id}/healthcheck")

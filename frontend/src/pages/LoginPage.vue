@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Hexagon, Lock, User, ArrowRight, AlertCircle } from 'lucide-vue-next';
+import { Hexagon, Lock, User, KeyRound, ArrowRight, AlertCircle } from 'lucide-vue-next';
 import { useAuth } from '@/composables/useAuth';
 
 const router = useRouter();
@@ -10,6 +10,8 @@ const { login } = useAuth();
 
 const username = ref('');
 const password = ref('');
+const otpCode = ref('');
+const requires2FA = ref(false);
 const error = ref('');
 const loading = ref(false);
 
@@ -23,11 +25,17 @@ const handleLogin = async () => {
   loading.value = true;
 
   try {
-    await login(username.value.trim(), password.value);
+    await login(username.value.trim(), password.value, otpCode.value.trim() || undefined);
     const redirect = (route.query.redirect as string) || '/dashboard';
     router.push(redirect);
   } catch (err: any) {
-    error.value = err?.message || 'Falha ao autenticar. Verifique suas credenciais.';
+    const msg = err?.message || 'Falha ao autenticar. Verifique suas credenciais.';
+    if (msg.includes('2FA_REQUIRED')) {
+      requires2FA.value = true;
+      error.value = 'Sua conta possui 2FA ativo. Digite o código de 6 dígitos do seu autenticador.';
+    } else {
+      error.value = msg;
+    }
   } finally {
     loading.value = false;
   }
@@ -91,6 +99,20 @@ const fillAdminCredentials = () => {
             </div>
           </div>
 
+          <div v-if="requires2FA">
+            <label class="block text-xs font-medium text-dock-accent mb-1">Código 2FA (TOTP — 6 dígitos)</label>
+            <div class="relative">
+              <input
+                v-model="otpCode"
+                type="text"
+                maxlength="6"
+                placeholder="123456"
+                class="w-full bg-dock-bg border border-dock-accent rounded pl-9 pr-3 py-2 text-xs text-dock-text placeholder-dock-text-dim outline-none transition-colors font-mono tracking-widest"
+              />
+              <KeyRound class="w-3.5 h-3.5 text-dock-accent absolute left-3 top-2.5" />
+            </div>
+          </div>
+
           <button
             type="submit"
             :disabled="loading"
@@ -116,4 +138,3 @@ const fillAdminCredentials = () => {
     </div>
   </div>
 </template>
-

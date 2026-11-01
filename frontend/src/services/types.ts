@@ -52,6 +52,11 @@ export interface Project {
   cpu_limit_cores?: number | null;
   auto_heal?: boolean;
   deploy_strategy?: 'recreate' | 'blue_green' | null;
+  replicas?: number | null;
+  autoscale_enabled?: boolean | null;
+  autoscale_min_replicas?: number | null;
+  autoscale_max_replicas?: number | null;
+  autoscale_cpu_target?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -77,6 +82,11 @@ export interface ProjectCreate {
   cpu_limit_cores?: number | null;
   auto_heal?: boolean;
   deploy_strategy?: 'recreate' | 'blue_green' | null;
+  replicas?: number | null;
+  autoscale_enabled?: boolean | null;
+  autoscale_min_replicas?: number | null;
+  autoscale_max_replicas?: number | null;
+  autoscale_cpu_target?: number | null;
 }
 
 export interface RoutingConfig {
@@ -99,6 +109,14 @@ export interface ProjectPreview {
   created?: string | null;
 }
 
+export interface ProjectMember {
+  project_id: string;
+  user_id: string;
+  username: string;
+  role: 'admin' | 'developer' | 'viewer';
+  granted_at: string;
+}
+
 export interface Deployment {
   id: string;
   project_id: string;
@@ -113,6 +131,31 @@ export interface Deployment {
   duration_seconds: number | null;
   started_at: string;
   finished_at: string | null;
+}
+
+export interface DeploymentDiagnosis {
+  deployment_id?: string;
+  project_id?: string;
+  commit_sha?: string;
+  status: string;
+  title?: string;
+  root_cause: string;
+  category: string;
+  severity?: string;
+  confidence: number;
+  explanation?: string;
+  recommendations?: string[];
+  suggested_fixes?: string[];
+  findings?: {
+    rule_id: string;
+    category: string;
+    severity: string;
+    confidence: number;
+    title: string;
+    explanation: string;
+    suggested_fixes: string[];
+  }[];
+  analyzed_at?: string;
 }
 
 export interface EnvironmentVariable {
@@ -285,6 +328,7 @@ export interface User {
   email: string;
   role: 'admin' | 'developer' | 'viewer';
   is_active: boolean;
+  totp_enabled?: boolean;
   created_at: string;
 }
 

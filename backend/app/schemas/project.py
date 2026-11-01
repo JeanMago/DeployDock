@@ -41,10 +41,15 @@ class ProjectBase(BaseModel):
     cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
     auto_heal: Optional[bool] = True
     deploy_strategy: Optional[Literal["recreate", "blue_green"]] = "recreate"
+    replicas: Optional[int] = Field(default=1, ge=1, le=10)
+    autoscale_enabled: Optional[bool] = False
+    autoscale_min_replicas: Optional[int] = Field(default=1, ge=1, le=10)
+    autoscale_max_replicas: Optional[int] = Field(default=3, ge=1, le=10)
+    autoscale_cpu_target: Optional[int] = Field(default=75, ge=10, le=99)
 
 
 class ProjectCreate(RoutingFieldsMixin, ProjectBase):
-    template: Optional[str] = None  # 'fastapi' | 'express' | 'static' | 'custom'
+    template: Optional[str] = None
     dockerfile_content: Optional[str] = None
     git_token: Optional[str] = None
 
@@ -68,6 +73,11 @@ class ProjectUpdate(RoutingFieldsMixin, BaseModel):
     cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
     auto_heal: Optional[bool] = None
     deploy_strategy: Optional[Literal["recreate", "blue_green"]] = None
+    replicas: Optional[int] = Field(default=None, ge=1, le=10)
+    autoscale_enabled: Optional[bool] = None
+    autoscale_min_replicas: Optional[int] = Field(default=None, ge=1, le=10)
+    autoscale_max_replicas: Optional[int] = Field(default=None, ge=1, le=10)
+    autoscale_cpu_target: Optional[int] = Field(default=None, ge=10, le=99)
 
 
 class ProjectRead(ProjectBase):
@@ -100,6 +110,12 @@ class ProjectList(BaseModel):
     memory_limit_mb: Optional[int] = None
     cpu_limit_cores: Optional[float] = None
     auto_heal: Optional[bool] = True
+    deploy_strategy: Optional[str] = "recreate"
+    replicas: Optional[int] = 1
+    autoscale_enabled: Optional[bool] = False
+    autoscale_min_replicas: Optional[int] = 1
+    autoscale_max_replicas: Optional[int] = 3
+    autoscale_cpu_target: Optional[int] = 75
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -44,6 +44,11 @@ const router = createRouter({
           component: () => import('@/pages/DeploymentsPage.vue')
         },
         {
+          path: 'paas',
+          name: 'PaasHub',
+          component: () => import('@/pages/PaasHubPage.vue')
+        },
+        {
           path: 'resources',
           name: 'Resources',
           component: () => import('@/pages/ResourcesPage.vue'),
@@ -74,7 +79,6 @@ const router = createRouter({
 router.beforeEach((to, _from, next) => {
   const { isAuthenticated, canAccessDocker, isAdmin } = useAuth();
 
-  // 1. Rota pública (ex: login)
   if (to.meta.public) {
     if (isAuthenticated.value && to.path === '/login') {
       return next('/dashboard');
@@ -82,18 +86,15 @@ router.beforeEach((to, _from, next) => {
     return next();
   }
 
-  // 2. Não autenticado -> redireciona para login com parâmetro de retorno
   if (!isAuthenticated.value) {
     return next({ path: '/login', query: { redirect: to.fullPath } });
   }
 
-  // 3. Exige permissão para acessar o Docker (admin ou developer)
   if (to.meta.requiresDockerAccess && !canAccessDocker.value) {
     alert('Acesso negado: você precisa de permissão de Administrador ou Desenvolvedor para acessar o Docker.');
     return next('/dashboard');
   }
 
-  // 4. Exige permissão de administrador
   if (to.meta.requiresAdmin && !isAdmin.value) {
     alert('Acesso negado: área restrita a Administradores do sistema.');
     return next('/dashboard');

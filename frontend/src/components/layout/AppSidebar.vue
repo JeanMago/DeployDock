@@ -6,6 +6,7 @@ import {
   Box,
   FolderGit2,
   Rocket,
+  Layers,
   HardDrive,
   ShieldCheck,
   Settings,
@@ -39,6 +40,7 @@ const navItems = computed(() => {
     { name: 'Visão Geral', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Projetos', path: '/projects', icon: FolderGit2 },
     { name: 'Deploys', path: '/deployments', icon: Rocket },
+    { name: 'PaaS & Cloud', path: '/paas', icon: Layers },
   ];
 
   if (canAccessDocker.value) {

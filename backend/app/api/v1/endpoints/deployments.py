@@ -13,6 +13,7 @@ from app.schemas.deployment import DeploymentList, DeploymentRead
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
+from app.services.paas_service import paas_manager
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -35,6 +36,23 @@ async def get_deployment(deployment_id: uuid.UUID, db: AsyncSession = Depends(ge
     if not dep:
         raise HTTPException(status_code=404, detail="Not found")
     return dep
+
+
+@router.get("/{deployment_id}/diagnose")
+async def diagnose_deployment(deployment_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Analisa automaticamente os logs de build e erro de um deployment para diagnosticar a causa raiz e sugerir correções."""
+    dep = await get_deployment(deployment_id, db)
+    diag = paas_manager.diagnose_failure(
+        logs=dep.build_logs,
+        error_message=dep.error_message,
+        status=dep.status,
+    )
+    return {
+        "deployment_id": str(dep.id),
+        "project_id": str(dep.project_id),
+        "commit_sha": dep.commit_sha,
+        **diag,
+    }
 
 
 @router.post(

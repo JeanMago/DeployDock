@@ -15,8 +15,8 @@ export function useAuth() {
   const isDeveloper = computed(() => currentUser.value?.role === 'developer');
   const canAccessDocker = computed(() => isAdmin.value || isDeveloper.value);
 
-  const login = async (username: string, password: string) => {
-    const res = await api.auth.login({ username, password });
+  const login = async (username: string, password: string, otp_code?: string) => {
+    const res = await api.auth.login({ username, password, otp_code });
     token.value = res.access_token;
     currentUser.value = res.user;
     localStorage.setItem('deploydock_token', res.access_token);
