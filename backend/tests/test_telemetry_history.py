@@ -170,7 +170,10 @@ def test_manually_stopped_containers_are_not_restarted_by_auto_heal():
     c_name = "deploydock_testapp_stopped"
     uptime_monitor.mark_manually_stopped(c_name)
     assert uptime_monitor.is_manually_stopped(c_name) is True
+    # Check that unprefixed works too
+    assert uptime_monitor.is_manually_stopped("testapp_stopped") is True
 
     # Starting clears the stop flag
-    uptime_monitor.clear_manually_stopped(c_name)
+    uptime_monitor.clear_manually_stopped("testapp_stopped")
     assert uptime_monitor.is_manually_stopped(c_name) is False
+    assert uptime_monitor.is_manually_stopped("testapp_stopped") is False

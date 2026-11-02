@@ -9,10 +9,13 @@ Executa verificações periódicas em background nos projetos ativos:
 """
 
 import asyncio
+import json
 import logging
+import tempfile
 import time
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Deque, Dict, Optional
 
 import httpx
@@ -37,24 +40,59 @@ class UptimeMonitorService:
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self.total_auto_heals = 0
+        self._state_file = Path(tempfile.gettempdir()) / "deploydock_stopped_containers.json"
         # IDs/Nomes de contêineres que foram parados manualmente pelo usuário
         self._manually_stopped_containers: set[str] = set()
+        self._load_stopped_state()
+
+    def _load_stopped_state(self) -> None:
+        try:
+            if self._state_file.exists():
+                data = json.loads(self._state_file.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    self._manually_stopped_containers = set(data)
+        except Exception as e:
+            logger.debug(f"Não foi possível carregar estado de contêineres parados: {e}")
+
+    def _persist_stopped_state(self) -> None:
+        try:
+            self._state_file.write_text(
+                json.dumps(list(self._manually_stopped_containers)),
+                encoding="utf-8"
+            )
+        except Exception as e:
+            logger.debug(f"Não foi possível persistir estado de contêineres parados: {e}")
+
+    def _get_variants(self, identifier: str) -> set[str]:
+        clean = identifier.lower().strip()
+        variants = {clean}
+        if clean.startswith("deploydock_"):
+            variants.add(clean.removeprefix("deploydock_"))
+        else:
+            variants.add(f"deploydock_{clean}")
+        return variants
 
     def mark_manually_stopped(self, container_identifier: str) -> None:
         """Registra que um contêiner foi pausado/parado intencionalmente pelo usuário."""
-        self._manually_stopped_containers.add(container_identifier.lower().strip())
+        for v in self._get_variants(container_identifier):
+            self._manually_stopped_containers.add(v)
+        self._persist_stopped_state()
 
     def clear_manually_stopped(self, container_identifier: str) -> None:
         """Remove o bloqueio quando o usuário inicia o contêiner intencionalmente."""
-        clean = container_identifier.lower().strip()
-        self._manually_stopped_containers.discard(clean)
+        for v in self._get_variants(container_identifier):
+            self._manually_stopped_containers.discard(v)
+        self._persist_stopped_state()
 
     def is_manually_stopped(self, container_name: str, container_id: Optional[str] = None) -> bool:
         """Verifica se o contêiner foi interrompido manualmente pelo usuário."""
-        if container_name.lower().strip() in self._manually_stopped_containers:
-            return True
-        if container_id and container_id.lower().strip() in self._manually_stopped_containers:
-            return True
+        for v in self._get_variants(container_name):
+            if v in self._manually_stopped_containers:
+                return True
+        if container_id:
+            for v in self._get_variants(container_id):
+                if v in self._manually_stopped_containers:
+                    return True
         return False
 
     def start(self) -> None:

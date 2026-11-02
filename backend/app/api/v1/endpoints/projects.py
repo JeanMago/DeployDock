@@ -12,7 +12,7 @@ from pydantic import BaseModel as _BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db, require_role
+from app.api.deps import get_current_user, get_db, get_docker_service, require_role
 from app.api.v1.endpoints.webhooks import _trigger_deploy
 from app.core.config import settings
 from app.core.routing import public_url as build_public_url
@@ -667,6 +667,123 @@ async def deploy_project(
     return {"message": "Deploy iniciado com sucesso"}
 
 
+@router.post("/{project_id}/stop", dependencies=[Depends(require_role("admin", "developer"))])
+async def stop_project(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    docker: DockerService = Depends(get_docker_service),
+):
+    """Interrompe intencionalmente a execução dos contêineres do projeto e suspende auto-heal."""
+    project = await get_project(project_id, db)
+    if not paas_manager.check_project_permission(
+        str(current_user.id), current_user.role, str(project.id), ("admin", "developer")
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para gerenciar este projeto.")
+
+    container_name = f"deploydock_{project.name.lower()}"
+    uptime_monitor.mark_manually_stopped(container_name)
+    uptime_monitor.mark_manually_stopped(project.name)
+
+    stopped_count = 0
+    try:
+        await docker.stop_container(container_name)
+        stopped_count += 1
+    except ValueError:
+        pass
+    except Exception as e:
+        logger.warning(f"Erro ao parar contêiner principal {container_name}: {e}")
+
+    for rep in range(2, 11):
+        rep_name = f"{container_name}_rep{rep}"
+        uptime_monitor.mark_manually_stopped(rep_name)
+        try:
+            await docker.stop_container(rep_name)
+            stopped_count += 1
+        except Exception:
+            pass
+
+    security_manager.log_event(
+        event_type="project_stop",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}/stop",
+        detail=f"Projeto '{project.name}' parado intencionalmente pelo usuário",
+        user=current_user.username,
+        blocked=False,
+    )
+    return {"message": f"Projeto '{project.name}' interrompido com sucesso.", "stopped_containers": stopped_count}
+
+
+@router.post("/{project_id}/start", dependencies=[Depends(require_role("admin", "developer"))])
+async def start_project(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    docker: DockerService = Depends(get_docker_service),
+):
+    """Inicia a execução dos contêineres do projeto e reabilita o monitoramento de saúde."""
+    project = await get_project(project_id, db)
+    if not paas_manager.check_project_permission(
+        str(current_user.id), current_user.role, str(project.id), ("admin", "developer")
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para gerenciar este projeto.")
+
+    container_name = f"deploydock_{project.name.lower()}"
+    uptime_monitor.clear_manually_stopped(container_name)
+    uptime_monitor.clear_manually_stopped(project.name)
+
+    try:
+        await docker.start_container(container_name)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Contêiner '{container_name}' não encontrado no Docker Engine. Faça um novo Deploy."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao iniciar contêiner: {e}")
+
+    for rep in range(2, (project.replicas or 1) + 1):
+        rep_name = f"{container_name}_rep{rep}"
+        uptime_monitor.clear_manually_stopped(rep_name)
+        try:
+            await docker.start_container(rep_name)
+        except Exception:
+            pass
+
+    security_manager.log_event(
+        event_type="project_start",
+        severity="low",
+        ip=security_manager.get_client_ip(request),
+        path=f"/api/v1/projects/{project_id}/start",
+        detail=f"Projeto '{project.name}' iniciado pelo usuário",
+        user=current_user.username,
+        blocked=False,
+    )
+    return {"message": f"Projeto '{project.name}' iniciado com sucesso."}
+
+
+@router.post("/{project_id}/toggle-auto-heal", dependencies=[Depends(require_role("admin", "developer"))])
+async def toggle_project_auto_heal(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ativa ou desativa o Auto-Healing automático para o projeto."""
+    project = await get_project(project_id, db)
+    current_val = getattr(project, "auto_heal", True)
+    if current_val is None:
+        current_val = True
+    new_val = not current_val
+    project.auto_heal = new_val
+    await db.commit()
+    await db.refresh(project)
+    return {"project_id": str(project.id), "auto_heal": new_val}
+
+
 # ----------------------------------------------------------------
 # Escalonamento Horizontal (Réplicas) & Autoscaling (Dokploy & Ployter)
 # ----------------------------------------------------------------
@@ -678,6 +795,31 @@ class ProjectScalePayload(_BaseModel):
     autoscale_min_replicas: _Optional[int] = None
     autoscale_max_replicas: _Optional[int] = None
     autoscale_cpu_target: _Optional[int] = None
+    auto_heal: _Optional[bool] = None
+
+
+@router.post("/{project_id}/scale", dependencies=[Depends(require_role("admin", "developer"))])
+async def scale_project_replicas(
+    project_id: uuid.UUID,
+    payload: ProjectScalePayload,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Escala horizontalmente o número de réplicas de contêineres do projeto e configura o Autoscaler."""
+    project = await get_project(project_id, db)
+    replicas = max(1, min(10, int(payload.replicas)))
+    project.replicas = replicas
+    if payload.autoscale_enabled is not None:
+        project.autoscale_enabled = payload.autoscale_enabled
+    if payload.autoscale_min_replicas is not None:
+        project.autoscale_min_replicas = max(1, min(10, int(payload.autoscale_min_replicas)))
+    if payload.autoscale_max_replicas is not None:
+        project.autoscale_max_replicas = max(1, min(10, int(payload.autoscale_max_replicas)))
+    if payload.autoscale_cpu_target is not None:
+        project.autoscale_cpu_target = max(10, min(99, int(payload.autoscale_cpu_target)))
+    if payload.auto_heal is not None:
+        project.auto_heal = payload.auto_heal
 
 
 @router.post("/{project_id}/scale", dependencies=[Depends(require_role("admin", "developer"))])

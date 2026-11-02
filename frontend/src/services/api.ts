@@ -422,6 +422,9 @@ export const api = {
     update: (id: string, data: ProjectUpdate) => request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => request<{message: string}>(`/projects/${id}`, { method: 'DELETE' }),
     triggerDeploy: (id: string) => request<Deployment>(`/projects/${id}/deploy`, { method: 'POST' }),
+    stop: (id: string) => request<{ message: string }>(`/projects/${id}/stop`, { method: 'POST' }),
+    start: (id: string) => request<{ message: string }>(`/projects/${id}/start`, { method: 'POST' }),
+    toggleAutoHeal: (id: string) => request<{ project_id: string; auto_heal: boolean }>(`/projects/${id}/toggle-auto-heal`, { method: 'POST' }),
     scale: (
       id: string,
       payload: {
@@ -430,6 +433,7 @@ export const api = {
         autoscale_min_replicas?: number;
         autoscale_max_replicas?: number;
         autoscale_cpu_target?: number;
+        auto_heal?: boolean;
       }
     ) =>
       request<any>(`/projects/${id}/scale`, {

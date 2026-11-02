@@ -21,6 +21,8 @@ import {
   Layers,
   Users,
   X,
+  Square,
+  Play,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
 import type { Project, ProjectHealthcheck, ProjectPreview, ProjectMember } from '@/services/types';
@@ -56,10 +58,48 @@ const scaleForm = ref({
   autoscale_min_replicas: 1,
   autoscale_max_replicas: 3,
   autoscale_cpu_target: 75,
+  auto_heal: true,
 });
 const savingScale = ref(false);
 const projectMembers = ref<ProjectMember[]>([]);
 const memberForm = ref({ username: '', role: 'developer' as 'admin' | 'developer' | 'viewer' });
+const projectActionLoading = ref<Record<string, boolean>>({});
+
+const stopProject = async (p: Project) => {
+  if (!confirm(`Deseja realmente interromper o projeto "${p.name}"? Seus contêineres serão parados e o Auto-Heal permanecerá pausado.`)) return;
+  projectActionLoading.value[p.id] = true;
+  try {
+    await api.projects.stop(p.id);
+    await loadUptimeOverview(true);
+    await load();
+  } catch (err: any) {
+    alert(err?.message || 'Erro ao parar projeto');
+  } finally {
+    projectActionLoading.value[p.id] = false;
+  }
+};
+
+const startProject = async (p: Project) => {
+  projectActionLoading.value[p.id] = true;
+  try {
+    await api.projects.start(p.id);
+    await loadUptimeOverview(true);
+    await load();
+  } catch (err: any) {
+    alert(err?.message || 'Erro ao iniciar projeto');
+  } finally {
+    projectActionLoading.value[p.id] = false;
+  }
+};
+
+const toggleAutoHeal = async (p: Project) => {
+  try {
+    const res = await api.projects.toggleAutoHeal(p.id);
+    p.auto_heal = res.auto_heal;
+  } catch (err: any) {
+    alert(err?.message || 'Erro ao alterar Auto-Heal');
+  }
+};
 
 const openScaleAndRbacModal = async (p: Project) => {
   scaleProject.value = p;
@@ -69,6 +109,7 @@ const openScaleAndRbacModal = async (p: Project) => {
     autoscale_min_replicas: p.autoscale_min_replicas || 1,
     autoscale_max_replicas: p.autoscale_max_replicas || 3,
     autoscale_cpu_target: p.autoscale_cpu_target || 75,
+    auto_heal: p.auto_heal !== false,
   };
   try {
     projectMembers.value = await api.projects.listMembers(p.id);
@@ -431,12 +472,19 @@ const handleProjectUpdated = () => {
               {{ p.memory_limit_mb ? `${p.memory_limit_mb}MB` : 'RAM Livre' }} /
               {{ p.cpu_limit_cores ? `${p.cpu_limit_cores} vCPU` : 'CPU Livre' }}
             </span>
-            <span
-              v-if="p.auto_heal !== false"
-              class="px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-dock-text-muted"
+            <button
+              @click="toggleAutoHeal(p)"
+              :class="[
+                'px-2 py-0.5 rounded border transition-colors flex items-center gap-1 cursor-pointer',
+                p.auto_heal !== false
+                  ? 'bg-dock-success/10 border-dock-success/30 text-dock-success hover:bg-dock-success/20'
+                  : 'bg-dock-surface border-dock-border text-dock-text-dim hover:text-dock-text'
+              ]"
+              :title="p.auto_heal !== false ? 'Auto-Heal Ativo (clique para pausar)' : 'Auto-Heal Desativado (clique para ativar)'"
             >
-              Auto-Heal: ON
-            </span>
+              <ShieldCheck class="w-3 h-3" />
+              Auto-Heal: {{ p.auto_heal !== false ? 'ON' : 'OFF' }}
+            </button>
           </div>
 
           <!-- Barra de Ferramentas Rápidas do Projeto (Logs, Terminal, .env, Previews) -->
@@ -478,6 +526,26 @@ const handleProjectUpdated = () => {
             branch: {{ p.branch }}
           </span>
           <div class="flex items-center gap-1.5">
+            <button
+              v-if="healthchecks[p.id]?.container_state === 'running'"
+              @click="stopProject(p)"
+              :disabled="projectActionLoading[p.id]"
+              class="px-2.5 py-1 text-xs font-mono text-dock-warning hover:bg-dock-warning/10 border border-dock-border rounded transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              title="Interromper contêineres do projeto e suspender auto-restart"
+            >
+              <Square class="w-3 h-3 fill-current text-dock-warning" />
+              {{ projectActionLoading[p.id] ? 'Parando...' : 'Parar' }}
+            </button>
+            <button
+              v-else
+              @click="startProject(p)"
+              :disabled="projectActionLoading[p.id]"
+              class="px-2.5 py-1 text-xs font-mono text-dock-success hover:bg-dock-success/10 border border-dock-border rounded transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              title="Iniciar contêineres do projeto"
+            >
+              <Play class="w-3 h-3 fill-current text-dock-success" />
+              {{ projectActionLoading[p.id] ? 'Iniciando...' : 'Iniciar' }}
+            </button>
             <button
               @click="deploy(p.id, p.name)"
               class="px-2.5 py-1 text-xs font-mono text-dock-text bg-dock-surface hover:bg-dock-accent hover:text-white border border-dock-border rounded transition-colors flex items-center gap-1 cursor-pointer"
@@ -675,15 +743,23 @@ const handleProjectUpdated = () => {
                 />
               </div>
             </div>
-            <div class="flex items-center justify-between pt-1">
-              <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
-                <input type="checkbox" v-model="scaleForm.autoscale_enabled" class="accent-dock-accent" />
-                <span>Habilitar Autoscaling Automático por Métricas de CPU</span>
-              </label>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+              <div class="space-y-1">
+                <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text text-xs">
+                  <input type="checkbox" v-model="scaleForm.autoscale_enabled" class="accent-dock-accent" />
+                  <span>Habilitar Autoscaling Automático por Métricas de CPU</span>
+                </label>
+                <div>
+                  <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text text-xs">
+                    <input type="checkbox" v-model="scaleForm.auto_heal" class="accent-dock-accent" />
+                    <span>Auto-Healing Automático (reinicia o contêiner se cair)</span>
+                  </label>
+                </div>
+              </div>
               <button
                 @click="handleSaveScale"
                 :disabled="savingScale"
-                class="px-4 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium cursor-pointer"
+                class="px-4 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white font-medium cursor-pointer text-xs"
               >
                 {{ savingScale ? 'Aplicando...' : 'Aplicar Escalonamento' }}
               </button>

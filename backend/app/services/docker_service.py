@@ -457,9 +457,13 @@ class DockerService:
     # ----------------------------------------------------------------
 
     async def start_container(self, container_id: str) -> dict[str, str]:
-        """Inicia um contêiner."""
+        """Inicia um contêiner e restaura a política de reinício para unless-stopped."""
         try:
             c = await asyncio.to_thread(self.client.containers.get, container_id)
+            try:
+                await asyncio.to_thread(c.update, restart_policy={"Name": "unless-stopped"})
+            except Exception:
+                pass
             await asyncio.to_thread(c.start)
             await asyncio.to_thread(c.reload)
             return {"id": c.short_id, "name": c.name, "status": c.status}
@@ -469,9 +473,14 @@ class DockerService:
             raise RuntimeError(f"Erro Docker Engine: {e.explanation}")
 
     async def stop_container(self, container_id: str, timeout: int = 10) -> dict[str, str]:
-        """Para um contêiner com timeout."""
+        """Para um contêiner com timeout e desativa auto-restart do Docker Engine."""
         try:
             c = await asyncio.to_thread(self.client.containers.get, container_id)
+            try:
+                # Previne que o daemon Docker tente reiniciar após ser parado manualmente
+                await asyncio.to_thread(c.update, restart_policy={"Name": "no"})
+            except Exception:
+                pass
             await asyncio.to_thread(c.stop, timeout=timeout)
             await asyncio.to_thread(c.reload)
             return {"id": c.short_id, "name": c.name, "status": c.status}
