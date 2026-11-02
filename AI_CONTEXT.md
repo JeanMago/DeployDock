@@ -67,14 +67,20 @@ backend/app/
 └── api/v1/
     ├── router.py                     # Agrega todas as rotas sob /api/v1
     └── endpoints/
-        ├── auth.py                   # POST /login, GET /me, GET/POST /users, PUT /password, PATCH /users/{id}/toggle, DELETE /users/{id}
+        ├── auth.py                   # POST /login, GET /me, GET/POST /users, PUT /password, OAuth Device (GitHub/Google), /account, /admin/access
         ├── containers.py             # GET /containers, POST /run (Quick Launch), start/stop/restart/remove, GET /logs, GET /stats, GET /files, GET /files/content
         ├── projects.py               # CRUD de projetos, GET/PUT /env (variáveis .env), POST /deploy
         ├── deployments.py            # GET /deployments, GET /{id}/logs, POST /trigger, POST /rollback/{project_id}
-        ├── system.py                 # GET /info (CPU/RAM/Disco host), GET /resources, POST /prune, GET /production-check
+        ├── system.py                 # GET /info (CPU/RAM/Disco host), GET /resources, POST /prune, GET /production-check, /notifications
         ├── security.py               # GET /summary, GET /events, POST /block-ip, DELETE /block-ip/{ip}, POST /config, DELETE /events
         ├── webhooks.py               # POST /github (Valida HMAC-SHA256 por projeto ou global e dispara deploy em background)
         └── ws.py                     # WS /ws/logs/{id}, WS /ws/stats/{id}, WS /ws/exec/{id} (terminal), WS /ws/deployments
+├── services/
+│   ├── docker_service.py             # Wrapper assíncrono Docker SDK (containers, stats, logs, exec, prune)
+│   ├── deploy_orchestrator.py        # Pipeline de deploy GitOps (Clone -> Build -> Swap -> Check -> Rollback)
+│   ├── account_service.py            # AccountAccessManager (.deploydock_accounts.json, sessões, vínculos Git/Google)
+│   ├── notification_service.py       # NotificationService (E-mail SMTP HTML, Discord, Slack, Telegram, Webhook)
+│   └── paas_service.py               # PaaS Manager (OAuth Device GitHub/Google, templates, backups S3)
 ```
 
 ### Detalhes Técnicos Importantes do Backend
@@ -122,16 +128,18 @@ frontend/src/
 │   └── deployments/
 │       └── DeployTimeline.vue        # Histórico de deploys com modal de logs de build e botão de Rollback
 └── pages/
-    ├── LoginPage.vue                 # Tela de autenticação JWT
+    ├── LoginPage.vue                 # Tela de autenticação unificada (Conta Local, GitHub Device, Google Device)
     ├── DashboardPage.vue             # Visão geral de recursos do servidor, contêineres e últimos deploys
     ├── ContainerListPage.vue         # Lista de contêineres + Modal "Quick Launch" (Redis, Postgres, MySQL, Nginx, etc.)
     ├── ContainerDetailPage.vue       # Abas: Visão Geral/Métricas, Logs em Tempo Real, Terminal Web e Explorador de Arquivos
     ├── ProjectsPage.vue              # Gestão de aplicações GitOps, disparo de deploy, rollback, .env e webhook URL
-    ├──DeploymentsPage.vue           # Histórico global de todos os deploys
+    ├── DeploymentsPage.vue           # Histórico global de todos os deploys
     ├── ResourcesPage.vue             # Gestão de Imagens, Volumes, Redes e botão "System Prune"
     ├── SecurityPage.vue              # Painel do WAF, estatísticas de ataques bloqueados, IPs banidos e logs de ameaças
-    ├── SettingsPage.vue              # Checklist de Produção, Gerador de .env (Domínio/sslip.io), Alterar Senha e Gestão de Usuários
-    └── TutorialPage.vue              # Documentação interativa em 6 abas (Configuração, Oracle Cloud, Hostgrid, SSL, Webhooks, WAF)
+    ├── SettingsPage.vue              # Checklist de Produção, Gerador de .env, Alterar Senha, Gestão de Usuários e Notificações (SMTP/Webhooks)
+    ├── TutorialPage.vue              # Documentação interativa em 6 abas (Configuração, Oracle Cloud, Hostgrid, SSL, Webhooks, WAF)
+    ├── AccountPage.vue               # Minha Conta (/account): perfil, vínculo Git/Google, sessões ativas e preferências
+    └── AdminAccessPage.vue           # Controle de Acesso (/admin/access): políticas globais OAuth, domínios e revogação de sessões
 ```
 
 ### Detalhes Técnicos Importantes do Frontend

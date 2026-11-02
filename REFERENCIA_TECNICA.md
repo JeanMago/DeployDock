@@ -309,6 +309,22 @@ Métodos:
 - `broadcast(topic, message)` — envia para todos no tópico (ignora conexões mortas)
 - `send_personal(ws, message)` — envia para um cliente específico
 
+#### `AccountAccessManager` — Gestão Unificada de Contas e Políticas de Acesso
+
+Gerencia a persistência de contas vinculadas, sessões autenticadas e políticas administrativas globais em `.deploydock_accounts.json`:
+- Vínculo seguro de contas **Git (GitHub)** e **Google Workspace / Gmail** com tokens, metadados e avatares.
+- Rastreamento em tempo real de sessões ativas por usuário (ID da sessão, provedor de login `local`/`github`/`google`, IP cliente, User-Agent e carimbo de data/hora).
+- Revogação granular de sessões (sessão específica ou encerramento de todas as sessões de um usuário).
+- Controle de políticas administrativas: permissão de login local/social, auto-registro OAuth, papel padrão de novos usuários e lista de domínios corporativos permitidos.
+
+#### `NotificationService` — Motor Multicanal de Alertas (E-mail SMTP & Webhooks)
+
+Gerencia a transmissão de notificações para eventos críticos com retenção em histórico:
+- **E-mail SMTP**: Suporte a STARTTLS e SSL com conexão direta ao `smtp.gmail.com:587`, SendGrid, SES ou SMTP corporativo.
+- **Templates HTML**: Layouts com design responsivo contendo dados de deploys (commits, duração), violações de WAF (IP, regra violada), contêineres caídos e picos de uso de CPU/RAM.
+- **Roteamento Inteligente**: Disparo automático para os e-mails das contas conectadas (`AccountAccessManager`) e lista de destinatários definida pelo Administrador.
+- **Canais Complementares**: Discord Webhooks, Slack Webhooks, Telegram Bot e Webhook HTTP customizado.
+
 ### 4.4. API REST (`app/api/v1/endpoints/`)
 
 #### Tabela de endpoints
@@ -341,6 +357,27 @@ Métodos:
 | `GET`    | `/api/v1/system/volumes`                | Listar volumes                     |
 | `GET`    | `/api/v1/system/networks`               | Listar redes                       |
 | `POST`   | `/api/v1/system/prune`                  | Limpar recursos ociosos            |
+| `GET`    | `/api/v1/system/notifications`          | Configuração de notificações e SMTP|
+| `PUT`    | `/api/v1/system/notifications`          | Atualizar canais e alertas         |
+| `POST`   | `/api/v1/system/notifications/test`     | Disparar teste de e-mail / webhook |
+| `POST`   | `/api/v1/auth/login`                    | Login local JWT (usuário/senha/2FA)|
+| `GET`    | `/api/v1/auth/oauth/providers`          | Lista de provedores de login ativos|
+| `POST`   | `/api/v1/auth/oauth/github/device/start`| Iniciar OAuth Device Flow GitHub   |
+| `POST`   | `/api/v1/auth/oauth/github/device/poll` | Polling e login OAuth Device GitHub|
+| `POST`   | `/api/v1/auth/oauth/github`             | Login direto via GitHub PAT/Token  |
+| `POST`   | `/api/v1/auth/oauth/google/device/start`| Iniciar OAuth Device Flow Google   |
+| `POST`   | `/api/v1/auth/oauth/google/device/poll` | Polling e login OAuth Device Google|
+| `POST`   | `/api/v1/auth/oauth/google`             | Login Google (Token ou App Password)|
+| `GET`    | `/api/v1/auth/account`                  | Dados de perfil, sessões e vínculos|
+| `PUT`    | `/api/v1/auth/account/profile`          | Atualizar perfil e alertas e-mail  |
+| `POST`   | `/api/v1/auth/account/link/github`      | Vincular conta Git/GitHub          |
+| `DELETE` | `/api/v1/auth/account/link/github`      | Desvincular conta Git/GitHub       |
+| `POST`   | `/api/v1/auth/account/link/google`      | Vincular conta Google / Gmail      |
+| `DELETE` | `/api/v1/auth/account/link/google`      | Desvincular conta Google           |
+| `GET`    | `/api/v1/auth/admin/access`             | Visão administrativa de acessos    |
+| `PUT`    | `/api/v1/auth/admin/access/policies`    | Políticas globais de login/OAuth   |
+| `PATCH`  | `/api/v1/auth/admin/users/{id}/access`  | Alterar papel/status de usuário    |
+| `POST`   | `/api/v1/auth/admin/users/{id}/revoke-sessions` | Revogar sessões de usuário |
 | `GET`    | `/health`                               | Health check do backend            |
 
 #### Endpoints WebSocket

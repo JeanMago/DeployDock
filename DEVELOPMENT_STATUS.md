@@ -32,6 +32,15 @@
   - Validação HMAC-SHA256 (`X-Hub-Signature-256`) tanto pelo `webhook_secret` individual de cada projeto quanto pelo segredo global
 - [x] **Diagnóstico de Produção (`endpoints/system.py`)**:
   - Endpoint `GET /api/v1/system/production-check` avaliando prontidão de Traefik, Banco de Dados, `SECRET_KEY`, Domínio, TLS e Webhook
+- [x] **Autenticação Multi-Método & OAuth Device Flow (`endpoints/auth.py`, `services/paas_service.py`)**:
+  - OAuth 2.0 Device Flow resiliente para **GitHub** (`github.com/login/device`) com sincronização de repositórios e branches
+  - OAuth 2.0 Device Flow resiliente para **Google** (`google.com/device`) com validação direta de tokens (`ya29...` / `eyJ...`) e vínculo de e-mail/foto
+  - Suporte a autenticação direta via Senha de App Google com validação STARTTLS no `smtp.gmail.com:587`
+- [x] **Gestor de Contas & Controle de Acesso (`services/account_service.py`)**:
+  - Gerenciador de contas persistente (`.deploydock_accounts.json`), controle de sessões ativas com revogação e políticas administrativas
+- [x] **Serviço de Notificações Multicanal (`services/notification_service.py`)**:
+  - Motor de alertas em tempo real para Deploys, WAF, Queda de Contêineres e Métricas do Host
+  - Canal de **E-mail SMTP** com templates HTML responsivos e roteamento automático para e-mails dos usuários conectados
 
 ---
 
@@ -41,8 +50,8 @@
   - **Gestos Touch Swipe no Celular**: arrastar o dedo da esquerda para a direita abre o menu lateral suavemente; arrastar para a esquerda fecha
 - [x] **Coletor Avançado de Logs (`LogViewer.vue`)**:
   - Filtros rápidos por nível (`ALL`, `ERROR`, `WARN`, `INFO`) com contadores, busca com highlight, seletor de `tail`, pausa de stream, quebra de linha, tela cheia e download `.log`
-- [x] **10 Páginas Completas**:
-  1. `LoginPage.vue` — Autenticação JWT
+- [x] **12 Páginas Completas**:
+  1. `LoginPage.vue` — Autenticação unificada com abas para Conta Local, GitHub (Device) e Google (Device)
   2. `DashboardPage.vue` — Métricas de CPU/RAM/Disco do host, status dos contêineres e últimos deploys
   3. `ContainerListPage.vue` — Tabela/cards responsivos + **Quick App Launcher** (Redis, Postgres, MySQL, Nginx, Uptime Kuma, Adminer)
   4. `ContainerDetailPage.vue` — Gráficos em tempo real, Logs, Terminal Web (`xterm.js`) e **Explorador de Arquivos**
@@ -50,8 +59,10 @@
   6. `DeploymentsPage.vue` — Linha do tempo de deploys com visualização dos logs completos de build
   7. `ResourcesPage.vue` — Imagens, Volumes, Redes e botão **System Prune**
   8. `SecurityPage.vue` — Painel do WAF, bloqueio/desbloqueio de IPs e log de ataques bloqueados
-  9. `SettingsPage.vue` — **Checklist de Prontidão para Produção**, **Gerador Interativo de `.env`** (Domínio ou `sslip.io`), Alteração de Senha e Gestão de Usuários
+  9. `SettingsPage.vue` — **Checklist de Prontidão para Produção**, **Gerador Interativo de `.env`**, Alteração de Senha, Gestão de Usuários e **Central de Notificações Multicanal (E-mail SMTP, Discord, Slack, Telegram)**
   10. `TutorialPage.vue` — **Tutorial completo em 6 abas** (Configuração `.env`, Oracle Cloud, Hostgrid VPS, Domínios/SSL, GitHub Webhooks e Segurança WAF)
+  11. `AccountPage.vue` — **Minha Conta (`/account`)**: Perfil do usuário, foto/avatar, vínculos Git/Google, sessões ativas e preferências de notificação
+  12. `AdminAccessPage.vue` — **Controle de Acessos (`/admin/access`)**: Políticas globais de login, restrição de domínios, tabela de usuários com contas vinculadas e revogação de sessões em lote
 - [x] **Command Palette Global (`CommandPalette.vue`)**: Atalho `Ctrl+K` para busca rápida em todo o sistema
 
 ---

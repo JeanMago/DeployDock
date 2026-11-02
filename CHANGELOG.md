@@ -84,28 +84,67 @@ Este documento registra detalhadamente **todas as funcionalidades, melhorias de 
 | `frontend/src/components/layout/CommandPalette.vue` | Busca rápida global (`Ctrl+K`) |
 | `frontend/src/components/projects/ProjectEnvModal.vue` | Modal de edição avançada de variáveis `.env` por projeto |
 
+### 🔑 1.6. Autenticação Unificada, OAuth Git (GitHub) & Google SSO com Device Code
+- **OAuth 2.0 Device Flow Resiliente ([`auth.py`](backend/app/api/v1/endpoints/auth.py), [`paas_service.py`](backend/app/services/paas_service.py)):**
+  - Integração oficial com GitHub Device Flow (`github.com/login/device`) com controle de intervalo e tratamento do rate limit `slow_down`.
+  - Integração oficial com **Google Device Flow** (`google.com/device` + endpoint `/api/v1/auth/oauth/google/device/start` e `/poll`) permitindo autenticação e vinculação de conta Google sem necessidade de configurar URLs de callback locais no Google Cloud Console.
+  - Validação direta de `Access Token` (`ya29...`) e `ID Token` (`eyJ...`) pelas APIs oficiais (`oauth2.googleapis.com/tokeninfo` e `googleapis.com/oauth2/v3/userinfo`).
+  - Suporte a autenticação via **Senha de App do Google (16 caracteres)** com validação STARTTLS direta no `smtp.gmail.com:587`.
+  - Sincronização automática do e-mail Google (`jeandemoura2004@gmail.com`) com a conta do usuário no PostgreSQL e canal de notificações.
+- **Tela de Minha Conta ([`AccountPage.vue`](frontend/src/pages/AccountPage.vue) em `/account`):**
+  - Perfil completo do usuário com foto, e-mail principal, tipo de conta e vínculo com Git (GitHub) e Google.
+  - Visualização de sessões ativas (IP, navegador, data/hora) com opção de revogação.
+  - Alternância de login da sessão ativa entre credenciais locais, conta GitHub e conta Google.
+- **Painel de Controle de Acesso e Contas Logadas ([`AdminAccessPage.vue`](frontend/src/pages/AdminAccessPage.vue) em `/admin/access`):**
+  - Gestão centralizada para Administradores definirem políticas globais de acesso: habilitar/desabilitar login local, GitHub ou Google; auto-cadastro OAuth; papéis padrão (`developer`, `viewer`); restrição por domínios de e-mail permitidos.
+  - Tabela de controle de usuários com detalhes de contas vinculadas (GitHub/Google) e revogação de sessões em lote ou individual.
+- **Tela de Login Multi-Método ([`LoginPage.vue`](frontend/src/pages/LoginPage.vue)):**
+  - Três abas de autenticação rápida: **Conta Local** (usuário/senha + 2FA TOTP), **GitHub (Git)** (Device Code em 1 clique ou Token PAT) e **Google** (Device Code em 1 clique ou Senha de App/Token).
+
+---
+
+### 📧 1.7. Central de Notificações Multicanal com Alertas por E-mail (SMTP + HTML)
+- **Serviço de Notificações ([`notification_service.py`](backend/app/services/notification_service.py), [`account_service.py`](backend/app/services/account_service.py)):**
+  - Implementação completa do canal de **E-mail SMTP** com suporte a STARTTLS / SSL (Gmail, SendGrid, Amazon SES, Mailgun ou servidor próprio).
+  - Templates em HTML modernos e responsivos para eventos críticos:
+    - Deploys concluídos com sucesso ou com falha/rollback.
+    - Ataques e bloqueios mitigados pelo WAF / Anti-Brute-Force.
+    - Queda de contêineres e auto-healing.
+    - Alertas de alta utilização de CPU ou Memória RAM do host.
+  - Roteamento inteligente de destinatários: envio automático para os e-mails das contas conectadas (Google/GitHub) e lista personalizada configurada no painel.
+- **Interface de Configuração de Notificações ([`SettingsPage.vue`](frontend/src/pages/SettingsPage.vue)):**
+  - Seção interativa com testes em tempo real de envio de e-mail SMTP, Discord, Telegram, Slack e Webhooks customizados.
+
+---
+
 ### Arquivos Modificados
 | Arquivo | Principais Alterações |
 |---|---|
-| `README.md` | Documentação atualizada da arquitetura, funcionalidades e deploy |
+| `README.md` | Documentação atualizada da arquitetura, funcionalidades, novas páginas e deploy |
 | `docker-compose.yml` | Hardening da porta do backend (`127.0.0.1`), target `production` no frontend e labels HTTPS Traefik |
 | `backend/app/main.py` | Registro do middleware WAF, headers de segurança e seed inicial de administrador |
 | `backend/app/core/routing.py` | Redirecionamento automático HTTP → HTTPS no Traefik quando TLS está ativo |
 | `backend/app/services/docker_service.py` | Quick run de contêineres, File Explorer (`list_files`, `read_file`), logs com `since`/`timestamps` e System Prune |
 | `backend/app/services/deploy_orchestrator.py` | Auto-geração de Dockerfile (Node/Python/Go/Static) e suporte a Rollback |
-| `backend/app/api/v1/endpoints/auth.py` | Proteção anti-força bruta, alteração de senha e ativação/exclusão de usuários |
+| `backend/app/services/account_service.py` | Gerenciador de contas, metadados de sessão, vínculos Git/Google e políticas administrativas |
+| `backend/app/services/notification_service.py` | Motor de notificações multicanal (E-mail SMTP com HTML, Discord, Slack, Telegram, Webhook) |
+| `backend/app/api/v1/endpoints/auth.py` | OAuth Device Flow (GitHub e Google), login multi-método, endpoints de `/account` e `/admin/access` |
 | `backend/app/api/v1/endpoints/containers.py` | Rotas para Quick Launch, File Explorer e coleta avançada de logs |
 | `backend/app/api/v1/endpoints/deployments.py` | Rotas de logs de deploy e rollback |
 | `backend/app/api/v1/endpoints/projects.py` | Rotas de atualização de `.env` e metadados do projeto |
-| `backend/app/api/v1/endpoints/system.py` | Métricas de host, recursos Docker, System Prune e `production-check` |
+| `backend/app/api/v1/endpoints/system.py` | Métricas de host, recursos Docker, System Prune, `production-check` e config de notificações |
 | `backend/app/api/v1/endpoints/webhooks.py` | Normalização de URL do GitHub e validação de `webhook_secret` por projeto |
-| `frontend/src/components/layout/AppSidebar.vue` | Menu lateral limpo, responsivo e com indicadores em tempo real |
+| `frontend/src/components/layout/AppSidebar.vue` | Menu lateral com links para Minha Conta (`/account`) e Acessos (`/admin/access`) |
+| `frontend/src/components/layout/AppTopbar.vue` | Barra superior com atalhos para perfil do usuário e logout |
 | `frontend/src/components/layout/MainLayout.vue` | Gestos touch de arrastar o dedo (swipe) no celular para abrir/fechar a barra lateral |
 | `frontend/src/components/containers/LogViewer.vue` | Coletor de logs avançado com filtros de nível, busca, pausa, tail e download |
+| `frontend/src/pages/AccountPage.vue` | Tela de Minha Conta com vínculos Git/GitHub e Google OAuth Device, sessões e preferências |
+| `frontend/src/pages/AdminAccessPage.vue` | Painel de controle de acessos, tipos de conta, políticas OAuth e revogação de sessões |
+| `frontend/src/pages/LoginPage.vue` | Autenticação unificada com abas para Conta Local, GitHub (Device) e Google (Device) |
 | `frontend/src/pages/ContainerListPage.vue` | Quick App Launcher com templates prontos em 1 clique |
 | `frontend/src/pages/ContainerDetailPage.vue` | Aba de Explorador de Arquivos, Terminal Web e Métricas |
 | `frontend/src/pages/ProjectsPage.vue` | Botões de Rollback, modal `.env` e logs de build |
-| `frontend/src/pages/SettingsPage.vue` | Checklist de produção, Gerador de `.env`, alteração de senha e gestão de usuários |
+| `frontend/src/pages/SettingsPage.vue` | Checklist de produção, Gerador de `.env`, gestão SMTP de e-mail e canais de alerta |
 | `frontend/src/pages/TutorialPage.vue` | Tutorial interativo em 6 abas (Configuração, Oracle Cloud, Hostgrid, SSL, Webhooks e WAF) |
 
 ---
