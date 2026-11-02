@@ -37,6 +37,25 @@ class UptimeMonitorService:
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self.total_auto_heals = 0
+        # IDs/Nomes de contêineres que foram parados manualmente pelo usuário
+        self._manually_stopped_containers: set[str] = set()
+
+    def mark_manually_stopped(self, container_identifier: str) -> None:
+        """Registra que um contêiner foi pausado/parado intencionalmente pelo usuário."""
+        self._manually_stopped_containers.add(container_identifier.lower().strip())
+
+    def clear_manually_stopped(self, container_identifier: str) -> None:
+        """Remove o bloqueio quando o usuário inicia o contêiner intencionalmente."""
+        clean = container_identifier.lower().strip()
+        self._manually_stopped_containers.discard(clean)
+
+    def is_manually_stopped(self, container_name: str, container_id: Optional[str] = None) -> bool:
+        """Verifica se o contêiner foi interrompido manualmente pelo usuário."""
+        if container_name.lower().strip() in self._manually_stopped_containers:
+            return True
+        if container_id and container_id.lower().strip() in self._manually_stopped_containers:
+            return True
+        return False
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -90,25 +109,44 @@ class UptimeMonitorService:
         pid = str(project.id)
         docker = docker_svc or DockerService()
         host_header = project.public_host
-        proxy_port = settings.PROXY_HTTP_PORT or 80
-        target_url = f"http://127.0.0.1:{proxy_port}/"
+        proxy_http_port = settings.PROXY_HTTP_PORT or 80
+        proxy_https_port = settings.PROXY_HTTPS_PORT or 443
 
         reachable = False
         status_code = 0
         error_str: Optional[str] = None
         t0 = time.perf_counter()
 
-        try:
-            async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
-                resp = await client.get(target_url, headers={"Host": host_header})
-                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                status_code = resp.status_code
-                reachable = 200 <= resp.status_code < 400
-        except Exception as exc:
-            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-            error_str = str(exc)
+        # Alvos para testar disponibilidade HTTP/HTTPS
+        # 1. URL pública direta do projeto (ex: https://meu-app.147.15.8.139.sslip.io/)
+        # 2. Proxy local na porta 443 (HTTPS) com SNI e header Host
+        # 3. Proxy local na porta 80 (HTTP)
+        targets = [
+            (project.public_url, {}),
+            (f"https://127.0.0.1:{proxy_https_port}/", {"Host": host_header}),
+            (f"http://127.0.0.1:{proxy_http_port}/", {"Host": host_header}),
+        ]
 
-        # Fallback: se Traefik não respondeu 2xx/3xx, verifica porta direta do contêiner no Docker
+        for target_url, headers in targets:
+            if reachable:
+                break
+            try:
+                # verify=False para conexões com IP local (127.0.0.1) ou certificados auto-assinados/intermediários
+                async with httpx.AsyncClient(timeout=4.0, follow_redirects=True, verify=False) as client:
+                    resp = await client.get(target_url, headers=headers)
+                    status_code = resp.status_code
+                    # Qualquer resposta 2xx, 3xx ou até 401/403/404/405 indica que o servidor web/app está ativo e respondendo
+                    if 200 <= resp.status_code < 500:
+                        reachable = True
+                        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+                        error_str = None
+                        break
+            except Exception as exc:
+                error_str = str(exc)
+
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+        # Fallback 2: se o Traefik/URL externa não respondeu, tenta diretamente no contêiner ou via docker
         container_name = f"deploydock_{project.name.lower()}"
         container_state = "missing"
         try:
@@ -125,11 +163,11 @@ class UptimeMonitorService:
                             break
                 if host_port:
                     t1 = time.perf_counter()
-                    async with httpx.AsyncClient(timeout=3.5, follow_redirects=True) as client:
+                    async with httpx.AsyncClient(timeout=3.5, follow_redirects=True, verify=False) as client:
                         resp2 = await client.get(f"http://127.0.0.1:{host_port}/")
                         latency_ms = round((time.perf_counter() - t1) * 1000, 1)
                         status_code = resp2.status_code
-                        reachable = 200 <= resp2.status_code < 400
+                        reachable = 200 <= resp2.status_code < 500
                         error_str = None
         except Exception:
             pass
@@ -150,15 +188,19 @@ class UptimeMonitorService:
         auto_heals = prev.get("auto_heals_count", 0)
 
         # Auto-Healing se o contêiner caiu ou falhou 3 vezes seguidas e auto_heal está ativo
+        # IMPORTANTE: Se o usuário mandou parar/interromper o contêiner manualmente, NÃO religar!
         auto_heal_enabled = getattr(project, "auto_heal", True)
         if auto_heal_enabled is None:
             auto_heal_enabled = True
 
+        is_manually_stopped = self.is_manually_stopped(container_name)
+
         if (
             auto_heal_enabled
+            and not is_manually_stopped
             and not reachable
             and consecutive_failures >= 3
-            and container_state in ("running", "exited", "dead")
+            and container_state == "running"
         ):
             try:
                 await docker.restart_container(container_name, timeout=10)

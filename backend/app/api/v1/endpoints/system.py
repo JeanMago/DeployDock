@@ -10,6 +10,7 @@ from app.models.user import User
 from app.schemas.webhook import SystemInfo
 from app.services.docker_service import DockerService
 from app.services.notification_service import notification_manager
+from app.services.telemetry_service import telemetry_service
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -66,6 +67,44 @@ async def system_resources(docker: DockerService = Depends(get_docker_service)):
     except Exception:
         res["networks"] = []
     return res
+
+
+@router.get("/processes", dependencies=[Depends(require_role("admin"))])
+async def system_processes(
+    limit: int = Query(60, ge=1, le=200, description="Quantidade máxima de processos retornados"),
+    docker: DockerService = Depends(get_docker_service),
+):
+    """
+    Retorna os processos que mais consom recursos (CPU e Memória) na máquina host.
+    Acesso restrito exclusivamente a administradores.
+    """
+    processes = await docker.get_processes(limit=limit)
+    return {"processes": processes, "total": len(processes)}
+
+
+@router.get("/metrics/history")
+async def get_metrics_history(
+    range: str = Query(
+        "15m",
+        max_length=8,
+        description="Janela em minutos, horas ou dias: 15m | 1h | 24h | 7d | 30d (máx. 90d)",
+    ),
+    container: Optional[str] = Query(
+        None,
+        max_length=255,
+        description="Nome do contêiner Docker para filtrar a série (omitido = host completo)",
+    ),
+):
+    """Retorna série temporal histórica de telemetria do host (ou de um contêiner) por janela."""
+    return await telemetry_service.get_history(range_key=range, container=container)
+
+
+@router.get("/metrics/containers")
+async def get_metrics_containers(
+    range: str = Query("24h", max_length=8, description="Janela usada para listar contêineres"),
+):
+    """Lista os contêineres que possuem histórico de telemetria na janela informada."""
+    return {"containers": await telemetry_service.list_containers(range_key=range)}
 
 
 @router.get("/images")

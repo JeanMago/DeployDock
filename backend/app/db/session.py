@@ -18,6 +18,7 @@ import app.models.environment  # noqa: F401
 # Importar todos os modelos para que Base.metadata os registre antes do create_all.
 # Sem esses imports, o SQLAlchemy não encontra as tabelas ao chamar metadata.create_all().
 import app.models.project  # noqa: F401
+import app.models.telemetry  # noqa: F401
 import app.models.user  # noqa: F401
 from app.core.config import settings
 from app.db.base import Base

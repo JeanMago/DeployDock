@@ -660,6 +660,16 @@ export const api = {
   system: {
     info: () => request<SystemInfo>('/system/info'),
     resources: () => request<SystemResourcesOverview>('/system/resources'),
+    metricsHistory: (range = '15m') =>
+      request<import('./types').TelemetryHistoryResponse>(`/system/metrics/history?range=${encodeURIComponent(range)}`),
+    containerMetricsHistory: (container: string, range = '15m') =>
+      request<import('./types').ContainerTelemetryHistoryResponse>(
+        `/system/metrics/history?range=${encodeURIComponent(range)}&container=${encodeURIComponent(container)}`
+      ),
+    metricsContainers: (range = '24h') =>
+      request<{ containers: string[] }>(`/system/metrics/containers?range=${encodeURIComponent(range)}`),
+    processes: (limit = 60) =>
+      request<import('./types').SystemProcessesResponse>(`/system/processes?limit=${limit}`),
     listImages: () => request<any[]>('/system/images'),
     deleteImage: (id: string) => request<{message: string}>(`/system/images/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     listVolumes: () => request<any[]>('/system/volumes'),

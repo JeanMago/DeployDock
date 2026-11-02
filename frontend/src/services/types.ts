@@ -580,3 +580,67 @@ export interface SecurityOverview {
   blocked_ips: BlockedIpInfo[];
   audit_logs: SecurityAuditLog[];
 }
+
+export interface TelemetryHistoryPoint {
+  /** Epoch em segundos (início do balde de agregação) */
+  timestamp: number;
+  cpu_host: number;
+  /** Pico de CPU do host dentro do balde */
+  cpu_host_max: number;
+  cpu_docker: number;
+  memory_host_pct: number;
+  memory_host_used_mb: number;
+  memory_docker_used_mb: number;
+  network_rx_mb: number;
+  network_tx_mb: number;
+  disk_used_pct: number;
+  containers_active: number;
+}
+
+export interface TelemetryHistoryResponse {
+  range: string;
+  /** 'host' = servidor completo; 'container' = série de um contêiner específico */
+  scope?: 'host' | 'container';
+  container?: string | null;
+  window_seconds: number;
+  /** Tamanho (s) de cada balde de agregação da série */
+  bucket_seconds: number;
+  sample_interval_seconds: number;
+  retention_days: number;
+  /** Timestamp do ponto mais antigo disponível na janela (null se vazio) */
+  oldest_timestamp: number | null;
+  total_points: number;
+  points: TelemetryHistoryPoint[];
+}
+
+/** Ponto da série histórica de um contêiner Docker específico */
+export interface ContainerTelemetryPoint {
+  timestamp: number;
+  /** CPU no padrão `docker stats` (100% = 1 núcleo) */
+  cpu_percent: number;
+  cpu_percent_max: number;
+  memory_mb: number;
+  memory_host_pct: number;
+  network_rx_mb: number;
+  network_tx_mb: number;
+}
+
+export interface ContainerTelemetryHistoryResponse extends Omit<TelemetryHistoryResponse, 'points'> {
+  points: ContainerTelemetryPoint[];
+}
+
+export interface HostProcessItem {
+  pid: number;
+  name: string;
+  user: string;
+  cpu_percent: number;
+  cpu_time_s?: number | null;
+  memory_mb: number;
+  memory_percent: number;
+  cmd: string;
+}
+
+export interface SystemProcessesResponse {
+  processes: HostProcessItem[];
+  total: number;
+}

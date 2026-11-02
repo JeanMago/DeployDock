@@ -37,6 +37,7 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.core.waf import SecurityShieldMiddleware, security_manager
 from app.db.session import engine, init_db
+from app.services.telemetry_service import telemetry_service
 from app.services.uptime_service import uptime_monitor
 
 setup_logging()
@@ -49,7 +50,9 @@ async def lifespan(app: FastAPI):
         logging.getLogger("deploydock").warning("[Segurança] %s", problem)
     await init_db()
     uptime_monitor.start()
+    telemetry_service.start()
     yield
+    telemetry_service.stop()
     uptime_monitor.stop()
     await engine.dispose()
 

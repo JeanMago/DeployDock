@@ -15,13 +15,19 @@ import {
   CheckCircle2,
   Download,
   Upload,
+  Activity,
+  ShieldAlert,
+  Search,
 } from 'lucide-vue-next';
 import { api } from '@/services/api';
-import type { SystemResourcesOverview } from '@/services/types';
+import type { SystemResourcesOverview, HostProcessItem } from '@/services/types';
+import { useAuth } from '@/composables/useAuth';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import ResourceHistoryChart from '@/components/resources/ResourceHistoryChart.vue';
 
 const router = useRouter();
+const { isAdmin } = useAuth();
 const data = ref<SystemResourcesOverview | null>(null);
 const loading = ref(true);
 const refreshing = ref(false);
@@ -31,13 +37,60 @@ const pruningTarget = ref<string | null>(null);
 const deletingId = ref<string | null>(null);
 const feedbackMsg = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 
+// Processos da Máquina (Exclusivo para Admin)
+const hostProcesses = ref<HostProcessItem[]>([]);
+const loadingProcesses = ref(false);
+const processSearch = ref('');
+const processSort = ref<'cpu' | 'memory'>('memory');
+
+const loadProcesses = async () => {
+  if (!isAdmin.value) return;
+  loadingProcesses.value = true;
+  try {
+    const res = await api.system.processes(80);
+    hostProcesses.value = res.processes || [];
+  } catch (err) {
+    console.warn('Falha ao carregar processos da máquina:', err);
+  } finally {
+    loadingProcesses.value = false;
+  }
+};
+
+const filteredProcesses = computed(() => {
+  const q = processSearch.value.trim().toLowerCase();
+  let list = hostProcesses.value;
+  if (q) {
+    list = list.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.pid.toString().includes(q) ||
+        (p.cmd && p.cmd.toLowerCase().includes(q)) ||
+        (p.user && p.user.toLowerCase().includes(q))
+    );
+  }
+  return [...list].sort((a, b) => {
+    if (processSort.value === 'cpu') {
+      return (b.cpu_percent || 0) - (a.cpu_percent || 0) || (b.memory_mb || 0) - (a.memory_mb || 0);
+    }
+    return (b.memory_mb || 0) - (a.memory_mb || 0) || (b.cpu_percent || 0) - (a.cpu_percent || 0);
+  });
+});
+
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const loadData = async (silent = false) => {
   if (!silent) loading.value = true;
   refreshing.value = true;
   try {
-    data.value = await api.system.resources();
+    const promises: Promise<any>[] = [api.system.resources()];
+    if (isAdmin.value) {
+      promises.push(api.system.processes(80));
+    }
+    const [resData, resProcs] = await Promise.all(promises);
+    data.value = resData;
+    if (resProcs && resProcs.processes) {
+      hostProcesses.value = resProcs.processes;
+    }
   } catch (err: any) {
     console.error('Erro ao carregar recursos:', err);
   } finally {
@@ -299,6 +352,9 @@ const onRestoreFileSelected = async (ev: Event) => {
     </div>
 
     <template v-else-if="data">
+      <!-- GRÁFICO HISTÓRICO DE USO DE RECURSOS EM TEMPO REAL COM SELETOR DE TEMPO -->
+      <ResourceHistoryChart :live-overview="data" />
+
       <!-- SEÇÃO 1: USO REAL DO COMPUTADOR VS DOCKER (CPU & RAM) -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <!-- Card 1: Processamento (CPU) -->
@@ -567,6 +623,145 @@ const onRestoreFileSelected = async (ev: Event) => {
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- SEÇÃO EXCLUSIVA DE ADMIN: PROCESSOS EM EXECUÇÃO NO COMPUTADOR/HOST -->
+      <div v-if="isAdmin" class="glass-panel overflow-hidden border border-dock-accent/20">
+        <div class="px-5 py-3.5 border-b border-dock-border flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-dock-surface/40">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded bg-dock-accent/10 border border-dock-accent/30 flex items-center justify-center text-dock-accent shrink-0">
+              <Activity class="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-dock-text">
+                  Processos Ativos do Computador (Host)
+                </h3>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-dock-accent/10 text-dock-accent border border-dock-accent/30">
+                  <ShieldAlert class="w-3 h-3" /> Exclusivo Admin
+                </span>
+              </div>
+              <p class="text-xs text-dock-text-dim mt-0.5">
+                Visão completa de todos os serviços, binários e processos do sistema operacional e Docker consumindo CPU e Memória
+              </p>
+            </div>
+          </div>
+
+          <!-- Filtros de Busca e Ordenação dos Processos -->
+          <div class="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+            <div class="relative flex items-center">
+              <Search class="w-3.5 h-3.5 text-dock-text-dim absolute left-2.5 pointer-events-none" />
+              <input
+                v-model="processSearch"
+                type="text"
+                placeholder="Filtrar por nome, PID ou comando..."
+                class="pl-8 pr-3 py-1 rounded bg-dock-bg border border-dock-border text-xs font-mono text-dock-text placeholder-dock-text-dim/60 focus:outline-none focus:border-dock-accent w-48 sm:w-64"
+              />
+            </div>
+
+            <div class="flex items-center bg-dock-bg p-0.5 rounded border border-dock-border text-xs font-mono">
+              <button
+                @click="processSort = 'memory'"
+                class="px-2 py-1 rounded transition-colors cursor-pointer"
+                :class="
+                  processSort === 'memory'
+                    ? 'bg-dock-surface text-dock-text font-bold shadow-xs'
+                    : 'text-dock-text-dim hover:text-dock-text'
+                "
+                title="Ordenar por maior consumo de memória RAM"
+              >
+                Maior Memória
+              </button>
+              <button
+                @click="processSort = 'cpu'"
+                class="px-2 py-1 rounded transition-colors cursor-pointer"
+                :class="
+                  processSort === 'cpu'
+                    ? 'bg-dock-surface text-dock-text font-bold shadow-xs'
+                    : 'text-dock-text-dim hover:text-dock-text'
+                "
+                title="Ordenar por maior consumo de CPU"
+              >
+                Maior CPU
+              </button>
+            </div>
+
+            <button
+              @click="loadProcesses"
+              :disabled="loadingProcesses"
+              class="p-1.5 rounded text-xs border border-dock-border bg-dock-bg hover:bg-dock-surface text-dock-text-dim hover:text-dock-text transition-colors cursor-pointer"
+              title="Recarregar lista de processos"
+            >
+              <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingProcesses }" />
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto max-h-96 overflow-y-auto">
+          <table class="w-full text-left text-xs border-collapse font-mono">
+            <thead class="sticky top-0 bg-dock-surface border-b border-dock-border z-10 text-[11px] uppercase text-dock-text-dim">
+              <tr>
+                <th class="px-4 py-2.5 font-medium w-20">PID</th>
+                <th class="px-4 py-2.5 font-medium">Processo / Imagem</th>
+                <th class="px-4 py-2.5 font-medium w-24">Usuário</th>
+                <th class="px-4 py-2.5 font-medium w-28">CPU (%)</th>
+                <th class="px-4 py-2.5 font-medium w-36">Memória (RAM)</th>
+                <th class="px-4 py-2.5 font-medium">Linha de Comando / Executável</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-dock-border">
+              <tr
+                v-for="p in filteredProcesses"
+                :key="p.pid"
+                class="hover:bg-dock-surface/60 transition-colors"
+              >
+                <td class="px-4 py-2 font-mono text-dock-text-dim">
+                  {{ p.pid }}
+                </td>
+                <td class="px-4 py-2 font-medium text-dock-text whitespace-nowrap">
+                  {{ p.name }}
+                </td>
+                <td class="px-4 py-2 text-dock-text-dim whitespace-nowrap">
+                  {{ p.user }}
+                </td>
+                <td class="px-4 py-2 tabular-nums">
+                  <span
+                    :class="
+                      (p.cpu_percent || 0) > 30
+                        ? 'text-dock-error font-bold'
+                        : (p.cpu_percent || 0) > 10
+                        ? 'text-dock-warning font-semibold'
+                        : 'text-dock-text-muted'
+                    "
+                  >
+                    {{ (p.cpu_percent || 0) > 0 ? `${p.cpu_percent.toFixed(1)}%` : p.cpu_time_s ? `${p.cpu_time_s}s total` : '0.0%' }}
+                  </span>
+                </td>
+                <td class="px-4 py-2 tabular-nums whitespace-nowrap">
+                  <span class="text-dock-text font-medium">{{ p.memory_mb }} MB</span>
+                  <span v-if="p.memory_percent > 0" class="text-dock-text-dim text-[11px] ml-1.5">
+                    ({{ p.memory_percent.toFixed(1) }}%)
+                  </span>
+                </td>
+                <td class="px-4 py-2 text-dock-text-dim max-w-md truncate" :title="p.cmd">
+                  {{ p.cmd || p.name }}
+                </td>
+              </tr>
+              <tr v-if="!filteredProcesses.length">
+                <td colspan="6" class="px-4 py-8 text-center text-dock-text-dim">
+                  <div class="flex flex-col items-center gap-1.5">
+                    <Activity class="w-5 h-5 text-dock-text-dim/50" />
+                    <span>Nenhum processo encontrado para o filtro atual.</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="px-4 py-2 bg-dock-surface/30 border-t border-dock-border flex items-center justify-between text-[11px] font-mono text-dock-text-dim">
+          <span>Exibindo {{ filteredProcesses.length }} processos</span>
+          <span>Atualizado automaticamente a cada 4 segundos</span>
         </div>
       </div>
 

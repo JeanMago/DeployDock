@@ -9,6 +9,7 @@ from app.core.waf import security_manager, validate_safe_container_command
 from app.models.user import User
 from app.schemas.container import ContainerDetail, ContainerSummary
 from app.services.docker_service import DockerService
+from app.services.uptime_service import uptime_monitor
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -123,12 +124,15 @@ async def start_container(
     docker: DockerService = Depends(get_docker_service),
 ):
     res = await docker.start_container(container_id)
+    c_name = res.get("name", container_id)
+    uptime_monitor.clear_manually_stopped(c_name)
+    uptime_monitor.clear_manually_stopped(container_id)
     security_manager.log_event(
         event_type="container_action",
         severity="low",
         ip=security_manager.get_client_ip(request),
         path=f"/api/v1/containers/{container_id}/start",
-        detail=f"Contêiner '{res.get('name', container_id)}' iniciado",
+        detail=f"Contêiner '{c_name}' iniciado",
         user=current_user.username,
     )
     return {"message": "Started"}
@@ -142,12 +146,15 @@ async def stop_container(
     docker: DockerService = Depends(get_docker_service),
 ):
     res = await docker.stop_container(container_id)
+    c_name = res.get("name", container_id)
+    uptime_monitor.mark_manually_stopped(c_name)
+    uptime_monitor.mark_manually_stopped(container_id)
     security_manager.log_event(
         event_type="container_action",
         severity="low",
         ip=security_manager.get_client_ip(request),
         path=f"/api/v1/containers/{container_id}/stop",
-        detail=f"Contêiner '{res.get('name', container_id)}' parado",
+        detail=f"Contêiner '{c_name}' parado intencionalmente",
         user=current_user.username,
     )
     return {"message": "Stopped"}

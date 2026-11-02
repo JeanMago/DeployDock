@@ -7,10 +7,14 @@ executados em threads separadas e alimentam filas assíncronas.
 """
 
 import asyncio
+import glob
+import json
 import os
 import platform
 import shutil
 import socket
+import subprocess
+import sys
 import time
 from typing import Any, Generator
 
@@ -199,6 +203,113 @@ def _dir_size_bytes(path: str) -> tuple[int, int]:
     except Exception:
         pass
     return total, count
+
+
+def _collect_host_processes_sync(limit: int = 60) -> list[dict[str, Any]]:
+    """Coleta os processos que mais consom recursos (CPU e Memória) na máquina host."""
+    # 1. Linux via /proc
+    if os.path.exists("/proc"):
+        def get_proc_times() -> dict[int, tuple[int, str]]:
+            data: dict[int, tuple[int, str]] = {}
+            for pdir in glob.glob("/proc/[0-9]*"):
+                try:
+                    pid = int(os.path.basename(pdir))
+                    with open(f"{pdir}/stat", "r", encoding="utf-8") as f:
+                        stat = f.read()
+                    rparen = stat.rfind(")")
+                    if rparen != -1:
+                        parts = stat[rparen + 2:].split()
+                        utime = int(parts[11])
+                        stime = int(parts[12])
+                        data[pid] = (utime + stime, stat)
+                except Exception:
+                    pass
+            return data
+
+        t1_procs = get_proc_times()
+        time.sleep(0.10)
+        t2_procs = get_proc_times()
+
+        total_mem_kb = 1
+        try:
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        total_mem_kb = int(line.split()[1])
+                        break
+        except Exception:
+            pass
+
+        procs: list[dict[str, Any]] = []
+        for pid, (t2_ticks, stat) in t2_procs.items():
+            lparen = stat.find("(")
+            rparen = stat.rfind(")")
+            comm = stat[lparen + 1:rparen] if lparen != -1 and rparen != -1 else str(pid)
+            t1_ticks = t1_procs.get(pid, (t2_ticks, ""))[0]
+            # Normalização de CPU sobre 100ms
+            cpu_pct = round(max(0.0, (t2_ticks - t1_ticks) / 10.0), 1)
+
+            vm_rss_kb = 0
+            user = "system"
+            try:
+                with open(f"/proc/{pid}/status", "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("VmRSS:"):
+                            vm_rss_kb = int(line.split()[1])
+                        elif line.startswith("Uid:"):
+                            user = line.split()[1]
+            except Exception:
+                pass
+
+            cmdline = ""
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    raw = f.read().replace(b"\x00", b" ").decode("utf-8", errors="ignore").strip()
+                    cmdline = raw[:160]
+            except Exception:
+                pass
+
+            procs.append({
+                "pid": pid,
+                "name": comm,
+                "user": user,
+                "cpu_percent": cpu_pct,
+                "memory_mb": round(vm_rss_kb / 1024.0, 1),
+                "memory_percent": round((vm_rss_kb / total_mem_kb) * 100.0, 1) if total_mem_kb > 0 else 0.0,
+                "cmd": cmdline or comm,
+            })
+
+        procs.sort(key=lambda x: (x["cpu_percent"], x["memory_mb"]), reverse=True)
+        return procs[:limit]
+
+    # 2. Windows fallback (ambiente de desenvolvimento local)
+    if sys.platform == "win32":
+        try:
+            cmd = f"Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First {limit} -Property Id, ProcessName, WorkingSet64, CPU, Path | ConvertTo-Json"
+            p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=5)
+            if p.returncode == 0 and p.stdout.strip():
+                raw = json.loads(p.stdout)
+                if isinstance(raw, dict):
+                    raw = [raw]
+                res: list[dict[str, Any]] = []
+                for item in raw:
+                    mem_mb = round((item.get("WorkingSet64") or 0) / (1024 * 1024), 1)
+                    cpu_time = item.get("CPU")
+                    res.append({
+                        "pid": item.get("Id") or 0,
+                        "name": item.get("ProcessName") or "process",
+                        "user": "system",
+                        "cpu_percent": 0.0,
+                        "cpu_time_s": round(cpu_time, 1) if cpu_time is not None else None,
+                        "memory_mb": mem_mb,
+                        "memory_percent": 0.0,
+                        "cmd": item.get("Path") or item.get("ProcessName") or "",
+                    })
+                return res
+        except Exception:
+            pass
+
+    return []
 
 
 class DockerService:
@@ -674,6 +785,10 @@ class DockerService:
     # ----------------------------------------------------------------
     # Sistema & Monitoramento Completo de Recursos + Espaço em Disco
     # ----------------------------------------------------------------
+
+    async def get_processes(self, limit: int = 60) -> list[dict[str, Any]]:
+        """Retorna processos em execução na máquina que mais consom CPU e Memória."""
+        return await asyncio.to_thread(_collect_host_processes_sync, limit)
 
     async def get_system_info(self) -> dict[str, Any]:
         """Informações gerais do Docker Engine."""
