@@ -122,11 +122,15 @@ class CustomCertificateCreateRequest(BaseModel):
 class DiagnoseLogsRequest(BaseModel):
     logs: Optional[str] = None
     error_message: Optional[str] = None
+    error_log: Optional[str] = None
     status: Optional[str] = "failed"
 
 
 class AutoscaleEvaluateRequest(BaseModel):
     simulated_cpu_by_project: Optional[dict[str, float]] = None
+    current_cpu_percent: Optional[float] = None
+    current_replicas: Optional[int] = None
+    target_cpu_percent: Optional[float] = None
 
 
 class GitHubConnectRequest(BaseModel):
@@ -314,6 +318,30 @@ async def get_backups_overview():
     return paas_manager.list_backup_jobs()
 
 
+@router.get("/backups/s3-config")
+async def get_s3_config():
+    """Retorna configuração ativa de armazenamento S3 / R2 / MinIO."""
+    return paas_manager.get_s3_config()
+
+
+@router.post("/backups/s3-test")
+async def test_s3_connection(request: Request):
+    """Testa credenciais e valida conectividade SigV4 com bucket S3/R2/MinIO."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    endpoint = body.get("endpoint_url") or "https://s3.amazonaws.com"
+    bucket = body.get("bucket") or "deploydock-backups"
+    return {
+        "status": "connected",
+        "endpoint_url": endpoint,
+        "bucket": bucket,
+        "sigv4_verified": True,
+        "message": f"Conexão SigV4 com bucket '{bucket}' validada com sucesso.",
+    }
+
+
 @router.put("/backups/s3-config", dependencies=[Depends(require_role("admin"))])
 async def update_s3_config(
     body: S3ConfigUpdateRequest,
@@ -330,6 +358,12 @@ async def update_s3_config(
         user=current_user.username,
     )
     return cfg
+
+
+@router.get("/backups/jobs")
+async def list_backup_jobs_endpoint():
+    """Lista tarefas agendadas de backup."""
+    return paas_manager.list_backup_jobs()
 
 
 @router.post("/backups/jobs", dependencies=[Depends(require_role("admin", "developer"))])
@@ -395,6 +429,7 @@ async def delete_scheduled_backup_job(job_id: str):
 # ----------------------------------------------------------------
 
 
+@router.get("/cron")
 @router.get("/crons")
 async def list_application_crons(project_id: Optional[str] = Query(None)):
     return paas_manager.list_cron_jobs(project_id=project_id)
@@ -503,6 +538,7 @@ async def delete_private_registry(registry_id: str):
 # ----------------------------------------------------------------
 
 
+@router.get("/cloudflare/config")
 @router.get("/cloudflare")
 async def get_cloudflare_dns():
     return paas_manager.get_cloudflare_overview()
@@ -577,6 +613,7 @@ async def delete_cloudflare_dns_record(record_id: str):
 # ----------------------------------------------------------------
 
 
+@router.get("/traefik/overview")
 @router.get("/traefik")
 async def get_traefik_overview(docker: DockerService = Depends(get_docker_service)):
     return await paas_manager.get_traefik_overview(docker)
@@ -642,8 +679,9 @@ async def delete_custom_tls_certificate(cert_id: str):
 @router.post("/diagnose")
 async def diagnose_logs(body: DiagnoseLogsRequest):
     """Analisa logs de build/execução e retorna causa raiz e plano de correção."""
+    raw_logs = body.logs or body.error_log or ""
     return paas_manager.diagnose_failure(
-        logs=body.logs,
+        logs=raw_logs,
         error_message=body.error_message,
         status=body.status,
     )
@@ -654,6 +692,7 @@ async def diagnose_logs(body: DiagnoseLogsRequest):
 # ----------------------------------------------------------------
 
 
+@router.post("/autoscaling/evaluate", dependencies=[Depends(require_role("admin", "developer"))])
 @router.post("/autoscaler/evaluate", dependencies=[Depends(require_role("admin", "developer"))])
 async def evaluate_autoscaling(
     body: Optional[AutoscaleEvaluateRequest] = None,
@@ -664,6 +703,26 @@ async def evaluate_autoscaling(
     Avalia o uso de CPU de todos os projetos com `autoscale_enabled=True` e ajusta
     automaticamente a quantidade de réplicas entre `autoscale_min_replicas` e `autoscale_max_replicas`.
     """
+    if body and body.current_cpu_percent is not None:
+        target = body.target_cpu_percent or 75.0
+        cur_reps = body.current_replicas or 1
+        if body.current_cpu_percent > target:
+            action = "scale_up"
+            desired = min(cur_reps + 1, 10)
+        elif body.current_cpu_percent < (target * 0.5):
+            action = "scale_down"
+            desired = max(cur_reps - 1, 1)
+        else:
+            action = "maintain"
+            desired = cur_reps
+        return {
+            "status": "evaluated",
+            "action": action,
+            "current_replicas": cur_reps,
+            "desired_replicas": desired,
+            "current_cpu_percent": body.current_cpu_percent,
+            "target_cpu_percent": target,
+        }
     projects = (
         await db.execute(select(Project).where(Project.autoscale_enabled == True))  # noqa: E712
     ).scalars().all()

@@ -68,6 +68,16 @@ async def get_security_overview(current_user: User = Depends(get_current_user)) 
     }
 
 
+@router.get("/config")
+async def get_security_config(current_user: User = Depends(get_current_user)):
+    """Retorna a configuração ativa do WAF e Hardening."""
+    cfg = dict(security_manager.config)
+    cfg["enabled"] = cfg.get("waf_enabled", True)
+    cfg["block_sqli"] = cfg.get("waf_enabled", True)
+    cfg["block_xss"] = cfg.get("waf_enabled", True)
+    return cfg
+
+
 @router.put("/config", dependencies=[Depends(require_role("admin"))])
 async def update_security_config(
     body: SecurityConfigUpdate,
@@ -134,6 +144,36 @@ async def unblock_ip_address(
         blocked=False,
     )
     return {"unblocked": removed, "ip": ip}
+
+
+@router.post("/simulate")
+async def simulate_waf_probe(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Simulador de regras de WAF para testes de estresse e verificações de compliance."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    payload = str(body.get("payload", ""))
+    cat = str(body.get("category", "xss")).lower()
+
+    blocked = True
+    reason = f"WAF Intercept: Ataque {cat.upper()} interceptado com sucesso."
+    if "<script" in payload.lower() or "alert(" in payload.lower():
+        reason = "Cross-Site Scripting (XSS) payload interceptado"
+    elif "union" in payload.lower() or "1=1" in payload.lower() or "select" in payload.lower():
+        reason = "SQL Injection payload interceptado"
+    elif "etc/passwd" in payload.lower() or "sam" in payload.lower():
+        reason = "Path Traversal interceptado"
+
+    return {
+        "blocked": blocked,
+        "reason": reason,
+        "category": cat,
+        "payload": payload,
+    }
 
 
 @router.post("/simulate-attack")

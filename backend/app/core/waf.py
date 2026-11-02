@@ -96,7 +96,7 @@ class SecurityManager:
             (
                 "SQL Injection",
                 re.compile(
-                    r"(union\s+all\s+select|union\s+select|information_schema|sleep\(\d+\)|benchmark\(\d+|'\s*or\s*'1'\s*=\s*'1)",
+                    r"(union\s+all\s+select|union\s+select|information_schema|sleep\(\d+\)|benchmark\(\d+|'\s*or\s+1\s*=\s*1|'\s*or\s*'1'\s*=\s*'1|or\s+1\s*=\s*1)",
                     re.IGNORECASE,
                 ),
             ),
@@ -106,7 +106,7 @@ class SecurityManager:
             ),
             (
                 "Remote Code Execution / Shell Probe",
-                re.compile(r"(\$\{jndi:|/bin/bash\s+-i|;?\s*curl\s+http|\|\s*nc\s+-e)", re.IGNORECASE),
+                re.compile(r"(\$\{jndi:|(/bin/)?bash\s+-i|/dev/tcp/|;?\s*curl\s+http|\|\s*nc\s+-e)", re.IGNORECASE),
             ),
         ]
 
@@ -347,7 +347,8 @@ def validate_safe_container_command(command: str, user: str = "admin", ip: str =
     dangerous_patterns = [
         (r":\(\)\s*\{\s*:\|\:&\s*\}\s*;?\s*:", "Fork Bomb detectada"),
         (r"/var/run/docker\.sock", "Acesso direto ao socket Docker bloqueado"),
-        (r"rm\s+-rf\s+/\s*$", "Destruição da raiz do sistema bloqueada"),
+        (r"rm\s+-[a-zA-Z]*r[a-zA-Z]*\s+/(?:\s|$)", "Destruição da raiz do sistema bloqueada"),
+        (r"rm\s+-rf\s+/", "Destruição da raiz do sistema bloqueada"),
         (r"mkfs\.", "Formatação de bloco bloqueada"),
     ]
     for pat, reason in dangerous_patterns:

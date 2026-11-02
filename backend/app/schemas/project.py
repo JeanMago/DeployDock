@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.routing import normalize_domain, normalize_subdomain
 
@@ -26,6 +26,7 @@ class RoutingFieldsMixin(BaseModel):
 class ProjectBase(BaseModel):
     name: str
     repo_url: Optional[str] = None
+    git_url: Optional[str] = None
     branch: str = "main"
     webhook_secret: Optional[str] = None
     docker_compose_path: Optional[str] = "docker-compose.yml"
@@ -40,12 +41,23 @@ class ProjectBase(BaseModel):
     memory_limit_mb: Optional[int] = Field(default=None, ge=32, le=65536)
     cpu_limit_cores: Optional[float] = Field(default=None, ge=0.1, le=64.0)
     auto_heal: Optional[bool] = True
+    auto_heal_enabled: Optional[bool] = None
     deploy_strategy: Optional[Literal["recreate", "blue_green"]] = "recreate"
     replicas: Optional[int] = Field(default=1, ge=1, le=10)
     autoscale_enabled: Optional[bool] = False
     autoscale_min_replicas: Optional[int] = Field(default=1, ge=1, le=10)
     autoscale_max_replicas: Optional[int] = Field(default=3, ge=1, le=10)
     autoscale_cpu_target: Optional[int] = Field(default=75, ge=10, le=99)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_project_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "git_url" in data and not data.get("repo_url"):
+                data["repo_url"] = data["git_url"]
+            if "auto_heal_enabled" in data and "auto_heal" not in data:
+                data["auto_heal"] = data["auto_heal_enabled"]
+        return data
 
 
 class ProjectCreate(RoutingFieldsMixin, ProjectBase):
@@ -127,3 +139,4 @@ class RoutingConfig(BaseModel):
     tls_enabled: bool
     scheme: str
     port_suffix: str
+    traefik_enabled: bool = True

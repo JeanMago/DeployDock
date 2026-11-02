@@ -148,7 +148,11 @@ const loadGithubIntegration = async (customUser?: string) => {
       showGhConnectBox.value = true;
       startDevicePollingLoop(st.device_flow.interval || 5);
     }
-    ghRepos.value = await api.paas.listGithubRepos(customUser);
+    const targetUser =
+      customUser && customUser.toLowerCase() !== (st.username || '').toLowerCase()
+        ? customUser
+        : undefined;
+    ghRepos.value = await api.paas.listGithubRepos(targetUser);
   } catch {
     // ignore
   } finally {
@@ -514,6 +518,44 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
             </div>
           </div>
 
+          <!-- Banner de Repositórios Privados se o token não tiver escopo 'repo' -->
+          <div
+            v-if="ghStatus?.connected && !ghStatus?.can_read_private_repos"
+            class="p-2.5 rounded-lg bg-dock-warning/10 border border-dock-warning/30 text-xs text-dock-warning space-y-1.5"
+          >
+            <div class="flex items-center justify-between">
+              <span class="font-semibold flex items-center gap-1.5">
+                <Lock class="w-3.5 h-3.5" /> Desbloquear Repositórios Privados do GitHub
+              </span>
+              <a
+                href="https://github.com/settings/tokens/new?description=DeployDock-Private-Repos&scopes=repo,read:user,admin:repo_hook,read:packages"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-[11px] underline flex items-center gap-1 font-medium"
+              >
+                Gerar Token com 'repo' <ExternalLink class="w-3 h-3" />
+              </a>
+            </div>
+            <p class="text-[11px] text-dock-text-dim">
+              O login via dispositivo autoriza apenas os repositórios públicos. Para listar e clonar seus <strong>repositórios privados</strong>, cole um Personal Access Token com permissão <code>repo</code>:
+            </p>
+            <div class="flex gap-2">
+              <input
+                v-model="ghQuickToken"
+                type="password"
+                placeholder="Cole aqui seu Token PAT (ghp_xxxx)..."
+                class="flex-1 bg-dock-bg border border-dock-border rounded px-2.5 py-1 text-dock-text font-mono text-xs outline-none focus:border-dock-warning"
+              />
+              <button
+                type="button"
+                @click="handleConnectGithubToken"
+                class="px-3 py-1 rounded bg-dock-warning text-black font-semibold text-xs cursor-pointer hover:opacity-90"
+              >
+                Ativar Privados
+              </button>
+            </div>
+          </div>
+
           <!-- Caixa de Conexão OAuth Device Flow / Token Global -->
           <div v-if="showGhConnectBox" class="p-3 rounded-lg bg-dock-bg border border-dock-border space-y-3">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -635,6 +677,13 @@ const handleSubmit = async (triggerDeployNow: boolean = false) => {
                   Buscar Conta
                 </button>
               </div>
+            </div>
+
+            <div v-if="ghRepos.length > 0" class="flex items-center justify-between text-[11px] text-dock-text-dim px-0.5">
+              <span>{{ ghRepos.length }} repositórios carregados ({{ ghRepos.filter((r) => r.private).length }} privados)</span>
+              <span v-if="ghStatus?.connected" class="text-dock-success flex items-center gap-1">
+                <CheckCircle2 class="w-3 h-3" /> @{{ ghStatus.username }} sincronizado
+              </span>
             </div>
 
             <div v-if="ghReposLoading" class="py-4 text-center text-dock-text-dim">

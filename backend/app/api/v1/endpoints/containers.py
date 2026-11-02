@@ -1,7 +1,8 @@
-from typing import List, Optional
+import posixpath
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.api.deps import get_current_user, get_docker_service, require_role
 from app.core.waf import security_manager, validate_safe_container_command
@@ -33,9 +34,20 @@ class ContainerFileWriteRequest(BaseModel):
 
 
 class ContainerFileUploadRequest(BaseModel):
+    path: Optional[str] = None
     dir_path: str = "/"
-    filename: str
+    filename: Optional[str] = None
     content_base64: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_path_fallback(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            p = data.get("path")
+            if p and not data.get("filename"):
+                data["dir_path"] = posixpath.dirname(p) or "/"
+                data["filename"] = posixpath.basename(p)
+        return data
 
 
 class ContainerResourceUpdateRequest(BaseModel):
@@ -179,6 +191,7 @@ async def remove_container(
     return {"message": "Removed"}
 
 
+@router.patch("/{container_id}/quotas", dependencies=[Depends(require_role("admin", "developer"))])
 @router.put("/{container_id}/resources", dependencies=[Depends(require_role("admin", "developer"))])
 async def update_container_resources(
     container_id: str,
@@ -316,10 +329,12 @@ async def upload_file_to_container(
     docker: DockerService = Depends(get_docker_service),
 ):
     try:
+        target_dir = body.dir_path or "/"
+        target_name = body.filename or "upload.bin"
         res = await docker.upload_container_file(
             container_id,
-            dir_path=body.dir_path,
-            filename=body.filename,
+            dir_path=target_dir,
+            filename=target_name,
             content_base64=body.content_base64,
         )
         security_manager.log_event(

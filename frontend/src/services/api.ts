@@ -455,7 +455,7 @@ export const api = {
       request<{ removed: string }>(`/projects/${projectId}/members/${userId}`, {
         method: 'DELETE',
       }),
-    listEnv: (id: string) => request<EnvironmentVariable[]>(`/projects/${id}/env`),
+    listEnv: (id: string) => request<any>(`/projects/${id}/env`),
     saveEnv: (
       id: string,
       payload: { key?: string; value?: string; is_secret?: boolean; bulk_content?: string; apply_now?: boolean }

@@ -1219,6 +1219,14 @@ class PaaSManager:
             df.pop("device_code", None)
             out["device_flow"] = df
         out["has_token"] = bool(self.github_config.get("token_encrypted"))
+        scopes = out.get("scopes") or []
+        out["can_read_private_repos"] = bool(
+            out.get("has_token")
+            and (
+                any("repo" in str(s).lower() for s in scopes)
+                or out.get("auth_mode") == "pat"
+            )
+        )
         return out
 
     def get_decrypted_github_token(self, force: bool = False) -> str | None:
@@ -1535,31 +1543,61 @@ class PaaSManager:
         return self.get_github_status()
 
     async def list_github_repos(
-        self, username: str | None = None, per_page: int = 50
+        self, username: str | None = None, per_page: int = 100
     ) -> list[dict[str, Any]]:
         tok = self.get_decrypted_github_token(force=True)
         clean_user = (username or "").strip()
-        if clean_user:
-            self.github_config["username"] = clean_user
+        connected_user = (self.github_config.get("username") or "").strip()
 
-        if tok and not clean_user:
-            url = f"https://api.github.com/user/repos?sort=updated&per_page={min(per_page, 100)}&affiliation=owner,collaborator,organization_member"
-        else:
-            target_user = clean_user or self.github_config.get("username") or "JeanMago"
-            url = f"https://api.github.com/users/{target_user}/repos?sort=updated&per_page={min(per_page, 100)}"
+        # Se for a própria conta conectada (ou nenhum usuário específico especificado),
+        # consulta o endpoint autenticado /user/repos que retorna repositórios públicos e privados.
+        is_own_account = not clean_user or (
+            connected_user and clean_user.lower() == connected_user.lower()
+        )
+
+        all_items: list[dict[str, Any]] = []
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, headers=self._github_headers(tok))
-                if resp.status_code != 200:
-                    return []
-                items = resp.json()
+            async with httpx.AsyncClient(timeout=18.0) as client:
+                if tok and is_own_account:
+                    # Busca todos os repositórios (públicos e privados) do usuário autenticado
+                    for page in (1, 2, 3):
+                        url = (
+                            f"https://api.github.com/user/repos"
+                            f"?sort=updated&per_page=100&page={page}"
+                            f"&visibility=all&affiliation=owner,collaborator,organization_member"
+                        )
+                        resp = await client.get(url, headers=self._github_headers(tok))
+                        if resp.status_code == 200:
+                            page_items = resp.json()
+                            if isinstance(page_items, list) and page_items:
+                                all_items.extend(page_items)
+                                if len(page_items) < 100:
+                                    break
+                            else:
+                                break
+                        else:
+                            break
+                else:
+                    target_user = clean_user or connected_user or "JeanMago"
+                    url = f"https://api.github.com/users/{target_user}/repos?sort=updated&per_page={min(per_page, 100)}"
+                    resp = await client.get(url, headers=self._github_headers(tok))
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if isinstance(data, list):
+                            all_items = data
         except Exception as exc:
             logger.warning("Falha ao listar repositórios do GitHub (%s).", exc)
             return []
 
         repos: list[dict[str, Any]] = []
-        for r in items if isinstance(items, list) else []:
+        seen_ids = set()
+        for r in all_items:
+            rid = r.get("id")
+            if rid and rid in seen_ids:
+                continue
+            if rid:
+                seen_ids.add(rid)
             repos.append(
                 {
                     "id": r.get("id"),

@@ -98,6 +98,7 @@ export interface GitHubIntegrationStatus {
   avatar_url: string;
   scopes: string[];
   has_token: boolean;
+  can_read_private_repos?: boolean;
   oauth_client_id: string;
   auto_inject_git_token: boolean;
   auto_create_webhook: boolean;

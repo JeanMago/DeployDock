@@ -33,3 +33,7 @@ class SystemInfo(BaseModel):
     images_count: Optional[int] = None
     volumes_count: Optional[int] = None
     networks_count: Optional[int] = None
+    cpu_percent: Optional[float] = None
+    memory_percent: Optional[float] = None
+    disk_percent: Optional[float] = None
+    uptime_seconds: Optional[float] = None

@@ -43,7 +43,8 @@ const webhookUrl = computed(() => {
 const loadEnv = async () => {
   loading.value = true;
   try {
-    envVars.value = await api.projects.listEnv(props.project.id);
+    const res: any = await api.projects.listEnv(props.project.id);
+    envVars.value = Array.isArray(res) ? res : (res.variables || []);
   } catch (e) {
     console.error(e);
   } finally {

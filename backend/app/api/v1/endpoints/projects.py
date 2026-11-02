@@ -7,7 +7,7 @@ from typing import List
 from typing import Optional as _Optional
 
 import git
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel as _BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,9 +20,11 @@ from app.core.routing import slugify
 from app.core.security import decrypt_value, encrypt_value
 from app.core.waf import security_manager, validate_safe_git_url
 from app.db.session import async_session_factory
+from app.models.deployment import Deployment
 from app.models.environment import EnvironmentVariable
 from app.models.project import Project
 from app.models.user import User
+from app.schemas.deployment import DeploymentList
 from app.schemas.project import ProjectCreate, ProjectList, ProjectRead, ProjectUpdate, RoutingConfig
 from app.services.deploy_orchestrator import DeployOrchestrator
 from app.services.docker_service import DockerService
@@ -33,6 +35,62 @@ from app.services.uptime_service import uptime_monitor
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+RESERVED_SUBDOMAINS = {"admin", "api", "painel", "traefik", "dashboard", "auth", "mail", "smtp", "status", "system"}
+
+
+@router.post("/validate-subdomain")
+@router.get("/validate-subdomain")
+async def validate_subdomain_route(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verifica e reserva subdomínios, prevenindo colisões e route hijacking (HTTP 409)."""
+    sub = ""
+    cust = ""
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            sub = (body.get("subdomain") or "").strip().lower()
+            cust = (body.get("custom_domain") or "").strip().lower()
+        except Exception:
+            pass
+    else:
+        sub = (request.query_params.get("subdomain") or "").strip().lower()
+        cust = (request.query_params.get("custom_domain") or "").strip().lower()
+
+    if sub in RESERVED_SUBDOMAINS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"O subdomínio '{sub}' é reservado pelo sistema DeployDock.",
+        )
+
+    if sub:
+        exists = (
+            await db.execute(select(Project.id).where(Project.subdomain == sub))
+        ).first()
+        if exists:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"O subdomínio '{sub}' já está em uso por outro projeto.",
+            )
+
+    if cust:
+        exists_c = (
+            await db.execute(select(Project.id).where(Project.custom_domain == cust))
+        ).first()
+        if exists_c:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"O domínio customizado '{cust}' já está em uso por outro projeto.",
+            )
+
+    return {
+        "available": True,
+        "subdomain": sub,
+        "custom_domain": cust,
+        "message": "Subdomínio/domínio disponível para roteamento.",
+    }
 
 
 @router.get("/routing-config", response_model=RoutingConfig)
@@ -50,6 +108,7 @@ async def get_routing_config():
         tls_enabled=settings.APPS_TLS_ENABLED,
         scheme=scheme,
         port_suffix=port_suffix,
+        traefik_enabled=True,
     )
 
 
@@ -451,6 +510,15 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     if not project:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return project
+
+
+@router.get("/{project_id}/deployments", response_model=List[DeploymentList])
+async def list_project_deployments(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Retorna o histórico auditável de deployments do projeto."""
+    await get_project(project_id, db)
+    q = select(Deployment).where(Deployment.project_id == project_id).order_by(Deployment.started_at.desc())
+    result = await db.execute(q)
+    return result.scalars().all()
 
 
 ROUTING_FIELDS = (
@@ -900,7 +968,7 @@ async def list_env(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         .order_by(EnvironmentVariable.key.asc())
     )
     items = res.scalars().all()
-    return [
+    vars_list = [
         {
             "id": str(item.id),
             "project_id": str(item.project_id),
@@ -911,6 +979,69 @@ async def list_env(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         }
         for item in items
     ]
+    raw_lines = [f"{item.key}={_decrypt_if_needed(item.value, item.is_secret)}" for item in items]
+    env_content_str = "\n".join(raw_lines)
+    if env_content_str:
+        env_content_str += "\n"
+
+    return {
+        "env_content": env_content_str,
+        "variables": vars_list,
+    }
+
+
+@router.put("/{project_id}/env", dependencies=[Depends(require_role("admin", "developer"))])
+async def put_env_content(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Atualiza em lote o arquivo .env com criptografia Fernet AES-128 em repouso."""
+    project = await get_project(project_id, db)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    raw_content = body.get("env_content") or body.get("bulk_content") or ""
+    pairs: list[tuple[str, str, bool]] = []
+    for raw_line in raw_content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip().strip('"').strip("'")
+        if k:
+            is_sec = any(s in k.lower() for s in ("secret", "key", "password", "token", "pwd", "auth", "database_url"))
+            pairs.append((k, v, is_sec))
+
+    existing_res = await db.execute(
+        select(EnvironmentVariable).where(EnvironmentVariable.project_id == project_id)
+    )
+    existing_map = {e.key: e for e in existing_res.scalars().all()}
+
+    for k, v, secret in pairs:
+        stored_val = f"enc:{encrypt_value(v)}" if secret else v
+        if k in existing_map:
+            existing_map[k].value = stored_val
+            existing_map[k].is_secret = secret
+        else:
+            db.add(
+                EnvironmentVariable(
+                    project_id=project_id,
+                    key=k,
+                    value=stored_val,
+                    is_secret=secret,
+                )
+            )
+    await db.commit()
+    return {
+        "status": "updated",
+        "count": len(pairs),
+        "env_content": raw_content,
+    }
 
 
 @router.post("/{project_id}/env", dependencies=[Depends(require_role("admin", "developer"))])
