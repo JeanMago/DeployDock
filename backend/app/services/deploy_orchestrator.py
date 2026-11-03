@@ -256,7 +256,18 @@ class DeployOrchestrator:
                         repo_path, branch, git_token=git_token, repo_url=project.repo_url
                     )
                 except Exception as e:
-                    logger.warning(f"Git pull ignorado ({e}). Prosseguindo com repositório local.")
+                    logger.warning(
+                        f"Git pull falhou ({e}). Tentando sincronizar com clone limpo..."
+                    )
+                    try:
+                        shutil.rmtree(repo_path, ignore_errors=True)
+                        await self.git.clone_repo(
+                            project.repo_url, repo_path, branch, git_token=git_token
+                        )
+                    except Exception as clone_err:
+                        logger.warning(
+                            f"Falha ao reclonar repositório ({clone_err}). Prosseguindo com estado local."
+                        )
             else:
                 await self.git.clone_repo(
                     project.repo_url, repo_path, branch, git_token=git_token
@@ -574,7 +585,16 @@ class DeployOrchestrator:
                         repo_url=project.repo_url,
                     )
                 except Exception:
-                    commit_sha = "preview"
+                    try:
+                        shutil.rmtree(preview_repo_path, ignore_errors=True)
+                        commit_sha = await self.git.clone_repo(
+                            project.repo_url,
+                            preview_repo_path,
+                            branch=branch_name,
+                            git_token=git_token,
+                        )
+                    except Exception:
+                        commit_sha = "preview"
             else:
                 try:
                     commit_sha = await self.git.clone_repo(

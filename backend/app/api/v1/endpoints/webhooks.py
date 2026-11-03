@@ -259,7 +259,7 @@ async def github_webhook(
         }
 
     ref = payload.get("ref", "")
-    branch = ref.split("/")[-1] if ref.startswith("refs/heads/") else ""
+    branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else (ref.split("/")[-1] if ref else "")
     commit_sha = payload.get("after", "")
 
     return _route_push_or_preview(
@@ -352,7 +352,7 @@ async def gitlab_webhook(
         return {"status": "ignored", "provider": "gitlab", "event": event_kind}
 
     ref = payload.get("ref", "")
-    branch = ref.split("/")[-1] if ref.startswith("refs/heads/") else ref
+    branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else ref
     commit_sha = payload.get("checkout_sha") or payload.get("after") or ""
 
     return _route_push_or_preview(

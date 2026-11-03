@@ -59,11 +59,21 @@ class GitService:
                 repo = git.Repo.clone_from(auth_url, dest_path, branch=branch)
             else:
                 repo = git.Repo(dest_path)
-                if git_token and repo.remotes:
-                    repo.remotes.origin.set_url(auth_url)
-                repo.remotes.origin.fetch()
-                repo.git.checkout(branch)
-                repo.remotes.origin.pull()
+                if repo.remotes:
+                    if git_token:
+                        repo.remotes.origin.set_url(auth_url)
+                    elif repo_url:
+                        repo.remotes.origin.set_url(repo_url)
+                    repo.remotes.origin.fetch(prune=True)
+                    repo.git.clean("-fd")
+                    try:
+                        repo.git.checkout("-B", branch, f"origin/{branch}")
+                    except Exception:
+                        repo.git.checkout(branch)
+                    try:
+                        repo.git.reset("--hard", f"origin/{branch}")
+                    except Exception:
+                        pass
             return repo.head.commit.hexsha
 
         return await asyncio.to_thread(_clone)
@@ -80,12 +90,18 @@ class GitService:
             if repo.remotes:
                 if git_token and repo_url:
                     repo.remotes.origin.set_url(_inject_git_token(repo_url, git_token))
-                repo.remotes.origin.fetch()
+                elif repo_url:
+                    repo.remotes.origin.set_url(repo_url)
+                repo.remotes.origin.fetch(prune=True)
+                repo.git.clean("-fd")
                 try:
-                    repo.git.checkout(branch)
-                except Exception:
                     repo.git.checkout("-B", branch, f"origin/{branch}")
-                repo.remotes.origin.pull()
+                except Exception:
+                    repo.git.checkout(branch)
+                try:
+                    repo.git.reset("--hard", f"origin/{branch}")
+                except Exception:
+                    pass
             return repo.head.commit.hexsha
 
         return await asyncio.to_thread(_pull)

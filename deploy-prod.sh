@@ -103,6 +103,10 @@ fi
 
 # 5. Subir os contêineres em Produção
 echo "[5/5] Construindo e iniciando contêineres Docker em Produção..."
+if [ -d .git ] && command -v git &> /dev/null; then
+    echo "Sincronizando com a versão mais recente do Git..."
+    git pull origin main || git pull || true
+fi
 sudo docker compose up -d --build
 
 echo ""
