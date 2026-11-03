@@ -34,38 +34,119 @@ def _build_sample_tar_gz_base64() -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+class SubpathAsyncClient(httpx.AsyncClient):
+    """
+    Cliente HTTP assíncrono que preserva o subcaminho configurado na base_url (ex: /open/port-8000).
+    De acordo com a RFC 3986 e o comportamento padrão do httpx, requisições com caminhos
+    iniciados por '/' (ex: client.post('/api/v1/auth/login')) descartariam qualquer subcaminho
+    da base_url. Esta classe garante que os caminhos sejam concatenados ao prefixo base.
+    """
+    def __init__(self, base_url: str = "", **kwargs):
+        self._custom_base = str(base_url).rstrip("/")
+        super().__init__(**kwargs)
+
+    def build_request(self, method: str, url: Any, **kwargs):
+        str_url = str(url)
+        if not (str_url.startswith("http://") or str_url.startswith("https://")):
+            clean_path = str_url.lstrip("/")
+            if self._custom_base:
+                url = f"{self._custom_base}/{clean_path}"
+            else:
+                url = f"/{clean_path}"
+        return super().build_request(method, url, **kwargs)
+
+
+async def _is_deploydock_api(url: str, client: httpx.AsyncClient) -> bool:
+    """Valida com precisão se a URL alvo é de fato a API FastAPI do DeployDock."""
+    # 1. Verifica /health da API
+    try:
+        r = await client.get(f"{url.rstrip('/')}/health")
+        if r.status_code == 200:
+            ct = r.headers.get("content-type", "").lower()
+            if "application/json" in ct:
+                data = r.json()
+                if isinstance(data, dict) and data.get("status") in ("healthy", "ok"):
+                    return True
+    except Exception:
+        pass
+
+    # 2. Verifica /openapi.json
+    try:
+        r = await client.get(f"{url.rstrip('/')}/openapi.json")
+        if r.status_code == 200:
+            ct = r.headers.get("content-type", "").lower()
+            if "application/json" in ct and ("DeployDock" in r.text or "openapi" in r.text):
+                return True
+    except Exception:
+        pass
+
+    # 3. Verifica /api/v1/auth/totp/setup
+    try:
+        r = await client.get(f"{url.rstrip('/')}/api/v1/auth/totp/setup")
+        if r.status_code in (200, 401, 403):
+            ct = r.headers.get("content-type", "").lower()
+            if "application/json" in ct:
+                return True
+    except Exception:
+        pass
+
+    # 4. Verifica /docs apenas se contiver Swagger/FastAPI explícito (não HTML de SPA genérica)
+    try:
+        r = await client.get(f"{url.rstrip('/')}/docs")
+        if r.status_code == 200:
+            text = r.text.lower()
+            if "swagger" in text or "fastapi" in text or "redoc" in text:
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
 async def resolve_deploydock_api_url(explicit_url: Optional[str] = None) -> Optional[str]:
     """Descobre automaticamente a URL da API do DeployDock."""
     candidates = []
     if explicit_url and explicit_url.strip():
-        candidates.append(explicit_url.strip().rstrip("/"))
+        u = explicit_url.strip().rstrip("/")
+        candidates.append(u)
+        # Se veio com /open/port-8000, adiciona também a raiz direta do domínio
+        if "/open/port-8000" in u:
+            candidates.append(u.replace("/open/port-8000", ""))
+        elif "/open/" in u:
+            candidates.append(re.sub(r"/open/[^/]+", "", u))
+        else:
+            candidates.append(f"{u}/open/port-8000")
 
     env_url = os.getenv("DEPLOYDOCK_API_URL", "").strip()
     if env_url:
-        candidates.append(env_url.rstrip("/"))
+        u_env = env_url.rstrip("/")
+        candidates.append(u_env)
+        if "/open/port-8000" in u_env:
+            candidates.append(u_env.replace("/open/port-8000", ""))
 
     candidates.extend(
         [
             "http://127.0.0.1:8000",
             "http://localhost:8000",
+            "http://deploydock-backend:8000",
             "http://host.docker.internal:8000",
             "http://172.17.0.1:8000",
-            "http://deploydock-backend:8000",
+            "http://172.19.0.1:8000",
         ]
     )
 
     seen = set()
-    async with httpx.AsyncClient(timeout=2.5) as client:
+    async with httpx.AsyncClient(timeout=3.5, follow_redirects=True, verify=False) as client:
         for url in candidates:
-            if url in seen:
+            clean_url = url.rstrip("/")
+            if clean_url in seen:
                 continue
-            seen.add(url)
-            try:
-                resp = await client.get(f"{url}/docs")
-                if resp.status_code == 200:
-                    return url
-            except Exception:
-                continue
+            seen.add(clean_url)
+            if await _is_deploydock_api(clean_url, client):
+                return clean_url
+
+    if explicit_url and explicit_url.strip():
+        return explicit_url.strip().rstrip("/")
     return None
 
 
@@ -119,7 +200,7 @@ async def run_deploydock_e2e_suite(
             "tests": [],
         }
 
-    async with httpx.AsyncClient(base_url=resolved_url, timeout=20.0) as client:
+    async with SubpathAsyncClient(base_url=resolved_url, timeout=20.0, follow_redirects=True, verify=False) as client:
         token: Optional[str] = None
         headers: Dict[str, str] = {}
 

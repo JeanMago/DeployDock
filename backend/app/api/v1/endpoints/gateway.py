@@ -59,7 +59,7 @@ def _inject_gateway_shim(html: str, prefix: str) -> str:
     if re.search(r"<head[^>]*>", rewritten, re.IGNORECASE):
         return re.sub(
             r"(<head[^>]*>)",
-             lambda m: f"{m.group(1)}{shim}",
+            lambda m: f"{m.group(1)}{shim}",
             rewritten,
             count=1,
             flags=re.IGNORECASE,
@@ -105,11 +105,17 @@ async def _find_container_host_port(target: str) -> Optional[int]:
     return None
 
 
-@router.get("/{target}", include_in_schema=False)
-async def gateway_root_redirect(target: str, request: Request):
-    """Redireciona `/open/{target}` para `/open/{target}/` para preservar caminhos relativos."""
-    qs = f"?{request.url.query}" if request.url.query else ""
-    return RedirectResponse(url=f"/open/{target}/{qs}", status_code=307)
+@router.api_route(
+    "/{target}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def gateway_root(target: str, request: Request) -> Response:
+    """Para GET sem barra, redireciona para /{target}/. Para outros métodos HTTP, repassa diretamente."""
+    if request.method == "GET":
+        qs = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"/open/{target}/{qs}", status_code=307)
+    return await gateway_proxy(target=target, subpath="", request=request)
 
 
 @router.api_route(
@@ -160,17 +166,26 @@ async def gateway_proxy(target: str, subpath: str, request: Request) -> Response
                     status_code=502,
                     detail=f"Aplicação ou contêiner '{target}' não encontrado ou sem porta HTTP ativa.",
                 )
-            try:
-                upstream_resp = await client.request(
-                    method=request.method,
-                    url=f"http://127.0.0.1:{host_port}/{subpath}{query}",
-                    headers=fwd_headers,
-                    content=body,
-                )
-            except Exception as e:
+            
+            # Tenta 127.0.0.1 e fallbacks para redes Docker
+            candidate_hosts = ["127.0.0.1", "host.docker.internal", "172.17.0.1"]
+            last_err = None
+            for h in candidate_hosts:
+                try:
+                    upstream_resp = await client.request(
+                        method=request.method,
+                        url=f"http://{h}:{host_port}/{subpath}{query}",
+                        headers=fwd_headers,
+                        content=body,
+                    )
+                    break
+                except Exception as e:
+                    last_err = e
+
+            if upstream_resp is None:
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Erro ao conectar ao contêiner '{target}' na porta {host_port}: {e}",
+                    detail=f"Erro ao conectar ao contêiner '{target}' na porta {host_port}: {last_err}",
                 )
 
     resp_headers = {
