@@ -34,6 +34,7 @@ class NotificationConfigUpdate(BaseModel):
     smtp_from_email: Optional[str] = None
     smtp_from_name: Optional[str] = None
     smtp_use_tls: Optional[bool] = None
+    smtp_ssl_verify: Optional[bool] = None
     email_recipients: Optional[str] = None
     notify_logged_users_emails: Optional[bool] = None
     notify_on_deploy_success: Optional[bool] = None

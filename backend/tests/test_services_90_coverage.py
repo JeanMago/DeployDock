@@ -221,6 +221,96 @@ async def test_notification_service_all_channels_and_rules(tmp_path, monkeypatch
     assert (await ns.notify("deploy_success", "x", "y"))["status"] == "disabled"
 
 
+@pytest.mark.asyncio
+async def test_notification_email_smtp_filtering_and_mocked_delivery(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.notification_service.settings.REPOS_BASE_PATH", str(tmp_path / "repos"))
+    ns = NotificationService()
+
+    # 1. Validação de emails públicos vs .local
+    assert ns._is_valid_public_email("admin@gmail.com") is True
+    assert ns._is_valid_public_email("devops@empresa.com.br") is True
+    assert ns._is_valid_public_email("admin@deploydock.local") is False
+    assert ns._is_valid_public_email("test@server.internal") is False
+    assert ns._is_valid_public_email("invalido") is False
+
+    # 2. Resolução de destinatários com extra_recipients (teste direcionado)
+    direct = ns._resolve_email_recipients(extra_recipients=["destinatario@teste.com"])
+    assert direct == ["destinatario@teste.com"]
+
+    # 3. Teste de envio com mock do smtplib.SMTP (Porta 587 STARTTLS + App Password com espaços)
+    ns.update_config(
+        {
+            "enabled": True,
+            "email_enabled": True,
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "alerta@gmail.com",
+            "smtp_password": "abcd efgh ijkl mnop",  # com espaços
+            "smtp_use_tls": True,
+        }
+    )
+
+    mock_server = MagicMock()
+    mock_server.has_extn.return_value = True
+    logged_creds = []
+
+    def fake_login(u, p):
+        logged_creds.append((u, p))
+
+    mock_server.login = fake_login
+
+    sent_messages = []
+
+    def fake_send_message(msg, to_addrs=None):
+        sent_messages.append((msg, to_addrs))
+
+    mock_server.send_message = fake_send_message
+
+    class MockSMTPContext:
+        def __init__(self, host, port, timeout=12):
+            self.host = host
+            self.port = port
+        def __enter__(self):
+            return mock_server
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("smtplib.SMTP", MockSMTPContext)
+
+    # Dispara e-mail com mistura de e-mails públicos e dummy .local
+    recipients = ["alerta@gmail.com", "admin@deploydock.local", "invalido"]
+    ok, detail = ns._send_smtp_sync(recipients, "Assunto", "Texto", "<p>Html</p>")
+    assert ok is True
+    assert "smtp_sent" in detail
+    assert "alerta@gmail.com" in detail
+    assert "admin@deploydock.local" not in detail  # filtrado para host público!
+
+    # Verifica se os espaços foram removidos da senha de app
+    assert logged_creds == [("alerta@gmail.com", "abcdefghijklmnop")]
+    assert len(sent_messages) == 1
+    assert sent_messages[0][1] == ["alerta@gmail.com"]
+
+    # 4. Teste com MailHog (Porta 1025 sem auth e permitindo .local)
+    ns.update_config(
+        {
+            "smtp_host": "mailhog",
+            "smtp_port": 1025,
+            "smtp_user": "",
+            "smtp_password": "",
+            "smtp_use_tls": False,
+        }
+    )
+    sent_messages.clear()
+    logged_creds.clear()
+    mock_server.has_extn.return_value = False
+
+    ok_mh, detail_mh = ns._send_smtp_sync(["dev@deploydock.local"], "Assunto", "Texto", "<p>Html</p>")
+    assert ok_mh is True
+    assert "smtp_sent" in detail_mh
+    assert len(logged_creds) == 0  # sem login para servidor unauthenticated
+    assert sent_messages[0][1] == ["dev@deploydock.local"]
+
+
 # ── GitService (clone, pull, get_current_commit, token injection) ────────
 
 

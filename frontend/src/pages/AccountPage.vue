@@ -173,9 +173,16 @@ const handleTestEmailAlert = async () => {
       severity: 'info',
       email_to: targetEmail,
     });
-    showFeedback(
-      `Notificação enviada para ${targetEmail}! Canais atingidos: ${entry.channels.join(', ')}`
-    );
+    if (entry.errors && entry.errors.length > 0) {
+      errorMsg.value = `Falha ao entregar e-mail: ${entry.errors.join(' | ')}`;
+    } else if (entry.channels && entry.channels.includes('email')) {
+      showFeedback(
+        `E-mail de teste enviado com sucesso para ${targetEmail}! Verifique sua caixa de entrada.`
+      );
+    } else {
+      errorMsg.value =
+        'O canal de E-mail SMTP não está ativo no painel de Configurações do DeployDock. Ative-o em Configurações > Central de Notificações.';
+    }
   } catch (e: any) {
     errorMsg.value = e?.message || 'Erro ao disparar e-mail de teste.';
   } finally {

@@ -506,6 +506,7 @@ export interface NotificationConfig {
   smtp_from_email: string;
   smtp_from_name: string;
   smtp_use_tls: boolean;
+  smtp_ssl_verify?: boolean;
   email_recipients: string;
   notify_logged_users_emails: boolean;
   notify_on_deploy_success: boolean;

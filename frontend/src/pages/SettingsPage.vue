@@ -28,6 +28,9 @@ const notifOverview = ref<NotificationOverview | null>(null);
 const savingNotif = ref(false);
 const testingNotif = ref(false);
 const notifFeedback = ref('');
+const notifError = ref('');
+const testEmailTarget = ref('');
+const testingEmailDirect = ref(false);
 
 const prodCheck = ref<{
   score: number;
@@ -209,17 +212,40 @@ const load = async () => {
 
 onMounted(load);
 
+const applySmtpPreset = (preset: 'gmail' | 'mailhog' | 'outlook') => {
+  if (!notifOverview.value) return;
+  if (preset === 'gmail') {
+    notifOverview.value.config.smtp_host = 'smtp.gmail.com';
+    notifOverview.value.config.smtp_port = 587;
+    notifOverview.value.config.smtp_use_tls = true;
+    notifOverview.value.config.email_enabled = true;
+  } else if (preset === 'mailhog') {
+    notifOverview.value.config.smtp_host = 'mailhog';
+    notifOverview.value.config.smtp_port = 1025;
+    notifOverview.value.config.smtp_use_tls = false;
+    notifOverview.value.config.smtp_user = '';
+    notifOverview.value.config.smtp_password = '';
+    notifOverview.value.config.email_enabled = true;
+  } else if (preset === 'outlook') {
+    notifOverview.value.config.smtp_host = 'smtp.office365.com';
+    notifOverview.value.config.smtp_port = 587;
+    notifOverview.value.config.smtp_use_tls = true;
+    notifOverview.value.config.email_enabled = true;
+  }
+};
+
 const saveNotificationsConfig = async () => {
   if (!notifOverview.value) return;
   savingNotif.value = true;
   notifFeedback.value = '';
+  notifError.value = '';
   try {
     const res = await api.system.updateNotificationsConfig(notifOverview.value.config);
     notifOverview.value = res.overview;
     notifFeedback.value = 'Canais e regras de alertas salvos com sucesso!';
     setTimeout(() => (notifFeedback.value = ''), 4000);
   } catch (e: any) {
-    alert(e?.message || 'Erro ao salvar configurações de notificação.');
+    notifError.value = e?.message || 'Erro ao salvar configurações de notificação.';
   } finally {
     savingNotif.value = false;
   }
@@ -228,18 +254,64 @@ const saveNotificationsConfig = async () => {
 const handleTestNotification = async () => {
   testingNotif.value = true;
   notifFeedback.value = '';
+  notifError.value = '';
   try {
+    if (notifOverview.value && isAdmin.value) {
+      await api.system.updateNotificationsConfig(notifOverview.value.config);
+    }
     const entry = await api.system.testNotification({
       title: 'Teste de Alerta DeployDock',
       message: 'Todos os canais de monitoramento de Deploy, WAF e Uptime estão operacionais!',
       severity: 'info',
     });
+    if (entry.errors && entry.errors.length > 0) {
+      notifError.value = `Atenção: Ocorreram falhas no disparo: ${entry.errors.join(' | ')}`;
+    }
     notifFeedback.value = `Alerta de teste disparado! Canais atingidos: ${entry.channels.join(', ')}`;
     notifOverview.value = await api.system.notifications();
   } catch (e: any) {
-    alert(e?.message || 'Erro ao disparar alerta de teste.');
+    notifError.value = e?.message || 'Erro ao disparar alerta de teste.';
   } finally {
     testingNotif.value = false;
+  }
+};
+
+const handleTestEmailDirect = async () => {
+  if (!notifOverview.value) return;
+  const target =
+    testEmailTarget.value.trim() ||
+    notifOverview.value.config.email_recipients?.split(',')[0]?.trim() ||
+    notifOverview.value.config.smtp_user?.trim();
+  if (!target || !target.includes('@')) {
+    alert('Digite um endereço de e-mail válido para receber o teste.');
+    return;
+  }
+  testingEmailDirect.value = true;
+  notifFeedback.value = '';
+  notifError.value = '';
+  try {
+    if (isAdmin.value) {
+      const res = await api.system.updateNotificationsConfig(notifOverview.value.config);
+      notifOverview.value = res.overview;
+    }
+    const entry = await api.system.testNotification({
+      title: 'Teste de E-mail DeployDock',
+      message: `Este é um e-mail de teste para validar o canal SMTP (${notifOverview.value.config.smtp_host}:${notifOverview.value.config.smtp_port}). Notificações ativas!`,
+      severity: 'info',
+      email_to: target,
+    });
+    if (entry.errors && entry.errors.length > 0) {
+      notifError.value = `Falha no envio de e-mail: ${entry.errors.join(' | ')}`;
+    } else if (entry.channels && entry.channels.includes('email')) {
+      notifFeedback.value = `E-mail de teste enviado com sucesso para ${target}! Verifique sua caixa de entrada/spam.`;
+    } else {
+      notifError.value = `O canal de e-mail não foi disparado (Canais: ${entry.channels.join(', ')}). Certifique-se de marcar 'Ativar Envio por E-mail'.`;
+    }
+    notifOverview.value = await api.system.notifications();
+  } catch (e: any) {
+    notifError.value = e?.message || 'Erro ao enviar e-mail de teste.';
+  } finally {
+    testingEmailDirect.value = false;
   }
 };
 
@@ -379,6 +451,14 @@ const prune = async () => {
           <span>{{ notifFeedback }}</span>
         </div>
 
+        <div
+          v-if="notifError"
+          class="px-3 py-2 rounded bg-dock-danger/15 border border-dock-danger/30 text-dock-danger text-xs flex items-center gap-2"
+        >
+          <AlertTriangle class="w-4 h-4 shrink-0" />
+          <span>{{ notifError }}</span>
+        </div>
+
         <!-- Canal de Notificação por E-mail (SMTP & Contas Logadas) -->
         <div class="p-3.5 rounded-lg bg-dock-bg border border-dock-accent/30 space-y-3 text-xs">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -408,9 +488,35 @@ const prune = async () => {
             </div>
           </div>
 
+          <!-- Presets rápidos para facilitar a configuração de SMTP -->
+          <div v-if="isAdmin" class="flex flex-wrap items-center gap-2 text-[11px] text-dock-text-dim">
+            <span>Preenchimento rápido:</span>
+            <button
+              type="button"
+              @click="applySmtpPreset('gmail')"
+              class="px-2 py-0.5 rounded bg-dock-surface hover:bg-dock-border border border-dock-border text-dock-text cursor-pointer transition-colors"
+            >
+              Gmail (587 TLS)
+            </button>
+            <button
+              type="button"
+              @click="applySmtpPreset('mailhog')"
+              class="px-2 py-0.5 rounded bg-dock-surface hover:bg-dock-border border border-dock-border text-dock-text cursor-pointer transition-colors"
+            >
+              MailHog / Local (1025 Sem TLS)
+            </button>
+            <button
+              type="button"
+              @click="applySmtpPreset('outlook')"
+              class="px-2 py-0.5 rounded bg-dock-surface hover:bg-dock-border border border-dock-border text-dock-text cursor-pointer transition-colors"
+            >
+              Outlook / Office 365 (587 TLS)
+            </button>
+          </div>
+
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div class="sm:col-span-2">
-              <label class="block text-dock-text-muted mb-1">Destinatários de E-mail (separados por vírgula)</label>
+              <label class="block text-dock-text-muted mb-1">Destinatários de Alertas (separados por vírgula)</label>
               <input
                 v-model="notifOverview.config.email_recipients"
                 type="text"
@@ -425,7 +531,7 @@ const prune = async () => {
                 v-model="notifOverview.config.smtp_from_email"
                 type="text"
                 :disabled="!isAdmin"
-                placeholder="alertas@deploydock.local"
+                placeholder="alertas@deploydock.local (ou seu e-mail SMTP)"
                 class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
               />
             </div>
@@ -453,7 +559,7 @@ const prune = async () => {
               />
             </div>
             <div>
-              <label class="block text-dock-text-muted mb-1">Usuário SMTP (Opcional)</label>
+              <label class="block text-dock-text-muted mb-1">Usuário SMTP / Gmail</label>
               <input
                 v-model="notifOverview.config.smtp_user"
                 type="text"
@@ -463,22 +569,54 @@ const prune = async () => {
               />
             </div>
             <div>
-              <label class="block text-dock-text-muted mb-1">Senha / App Password SMTP</label>
+              <label class="block text-dock-text-muted mb-1">Senha / Senha de App Google</label>
               <input
                 v-model="notifOverview.config.smtp_password"
                 type="password"
                 :disabled="!isAdmin"
-                placeholder="••••••••••••"
+                placeholder="Senha de App (16 letras)"
                 class="w-full bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none"
               />
             </div>
           </div>
 
-          <div
-            v-if="notifOverview.resolved_email_recipients && notifOverview.resolved_email_recipients.length > 0"
-            class="text-[11px] font-mono text-dock-text-dim"
-          >
-            E-mails ativos na rota de disparo: <span class="text-dock-accent">{{ notifOverview.resolved_email_recipients.join(', ') }}</span>
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-dock-border/50 text-[11px]">
+            <label class="inline-flex items-center gap-2 cursor-pointer text-dock-text">
+              <input
+                type="checkbox"
+                v-model="notifOverview.config.smtp_use_tls"
+                :disabled="!isAdmin"
+                class="accent-dock-accent"
+              />
+              <span>Usar Criptografia STARTTLS / TLS (Ativo para porta 587; desmarque para porta 1025 / MailHog)</span>
+            </label>
+
+            <div
+              v-if="notifOverview.resolved_email_recipients && notifOverview.resolved_email_recipients.length > 0"
+              class="font-mono text-dock-text-dim"
+            >
+              E-mails na rota: <span class="text-dock-accent">{{ notifOverview.resolved_email_recipients.join(', ') }}</span>
+            </div>
+          </div>
+
+          <!-- Teste Rápido de Envio de E-mail Direto -->
+          <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 pt-2 border-t border-dock-border/50">
+            <input
+              v-model="testEmailTarget"
+              type="email"
+              :disabled="!isAdmin"
+              placeholder="Digite um e-mail de destino para testar o envio (ex: seuemail@gmail.com)"
+              class="flex-1 bg-dock-surface border border-dock-border focus:border-dock-accent rounded px-2.5 py-1.5 font-mono text-dock-text outline-none text-xs"
+            />
+            <button
+              type="button"
+              @click="handleTestEmailDirect"
+              :disabled="testingEmailDirect || !isAdmin"
+              class="px-3.5 py-1.5 rounded bg-dock-accent hover:bg-dock-accent-hover text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+            >
+              <Send class="w-3.5 h-3.5" />
+              {{ testingEmailDirect ? 'Enviando Teste...' : 'Testar Envio de E-mail' }}
+            </button>
           </div>
         </div>
 
@@ -575,6 +713,9 @@ const prune = async () => {
               <div class="min-w-0">
                 <span class="font-semibold text-dock-text">{{ item.title }}</span>
                 <span class="text-dock-text-dim ml-2 truncate">{{ item.message }}</span>
+                <div v-if="item.errors && item.errors.length > 0" class="text-[11px] text-dock-danger mt-1">
+                  ⚠️ Erro no envio: {{ item.errors.join(' | ') }}
+                </div>
               </div>
               <span class="px-2 py-0.5 rounded bg-dock-surface border border-dock-border text-[10px] text-dock-accent shrink-0">
                 {{ item.channels.join(', ') }}

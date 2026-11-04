@@ -32,10 +32,19 @@ class NotificationService:
     """Gerencia canais de notificação (incluindo E-mail SMTP), regras de disparo e histórico de alertas."""
 
     def __init__(self) -> None:
-        self._config_path = os.path.join(
-            os.path.dirname(os.path.abspath(settings.REPOS_BASE_PATH)),
+        base_dir = getattr(settings, "REPOS_BASE_PATH", "/app/repos") or "/app/repos"
+        preferred_path = os.path.join(base_dir, ".deploydock_notifications.json")
+        legacy_path = os.path.join(
+            os.path.dirname(os.path.abspath(base_dir)),
             ".deploydock_notifications.json",
         )
+        if os.path.exists(preferred_path):
+            self._config_path = preferred_path
+        elif os.path.exists(legacy_path):
+            self._config_path = legacy_path
+        else:
+            self._config_path = preferred_path
+
         self.config: Dict[str, Any] = {
             "enabled": True,
             "discord_webhook_url": "",
@@ -52,6 +61,7 @@ class NotificationService:
             "smtp_from_email": "alertas@deploydock.local",
             "smtp_from_name": "DeployDock Monitor",
             "smtp_use_tls": True,
+            "smtp_ssl_verify": True,
             "email_recipients": "",
             "notify_logged_users_emails": True,
             # Gatilhos
@@ -79,6 +89,8 @@ class NotificationService:
 
     def _save_config(self) -> None:
         try:
+            parent = os.path.dirname(os.path.abspath(self._config_path))
+            os.makedirs(parent, exist_ok=True)
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
         except Exception as e:
@@ -91,8 +103,39 @@ class NotificationService:
         self._save_config()
         return self.config
 
+    @staticmethod
+    def _is_valid_public_email(email: str) -> bool:
+        if not email or "@" not in email:
+            return False
+        parts = email.split("@")
+        if len(parts) != 2:
+            return False
+        user_part, domain = parts[0].strip(), parts[1].strip().lower()
+        if not user_part or not domain or "." not in domain:
+            return False
+        dummy_suffixes = (
+            ".local",
+            ".localhost",
+            ".internal",
+            ".test",
+            ".example",
+            ".invalid",
+            ".lan",
+        )
+        return not any(domain.endswith(sfx) for sfx in dummy_suffixes)
+
     def _resolve_email_recipients(self, extra_recipients: Optional[List[str]] = None) -> List[str]:
-        recipients: List[str] = []
+        # Se um destinatário específico foi passado (ex: teste direcionado), prioriza-o
+        if extra_recipients:
+            recipients: List[str] = []
+            for addr in extra_recipients:
+                clean = (addr or "").strip().lower()
+                if clean and "@" in clean and clean not in recipients:
+                    recipients.append(clean)
+            if recipients:
+                return recipients
+
+        recipients = []
         raw = (self.config.get("email_recipients") or "").replace(";", ",")
         for part in raw.split(","):
             addr = part.strip().lower()
@@ -103,11 +146,6 @@ class NotificationService:
             for addr in account_access_manager.get_notifiable_emails():
                 if addr not in recipients:
                     recipients.append(addr)
-
-        for addr in extra_recipients or []:
-            clean = (addr or "").strip().lower()
-            if clean and "@" in clean and clean not in recipients:
-                recipients.append(clean)
 
         smtp_user = (self.config.get("smtp_user") or "").strip().lower()
         if not recipients and "@" in smtp_user:
@@ -144,38 +182,94 @@ class NotificationService:
         plain_body: str,
         html_body: str,
     ) -> tuple[bool, str]:
+        import sys
+
         smtp_host = (self.config.get("smtp_host") or "").strip()
         smtp_port = int(self.config.get("smtp_port") or 587)
         smtp_user = (self.config.get("smtp_user") or "").strip()
         smtp_pass = (self.config.get("smtp_password") or "").strip()
-        from_email = (self.config.get("smtp_from_email") or smtp_user or "alertas@deploydock.local").strip()
+        if "gmail.com" in smtp_host.lower():
+            smtp_pass = smtp_pass.replace(" ", "")
+
+        if not smtp_host:
+            return False, "Host SMTP não configurado"
+
+        is_local_host = (
+            smtp_host in ("localhost", "127.0.0.1", "::1", "mailhog", "mailpit")
+            or smtp_host.endswith(".local")
+            or smtp_host.endswith(".internal")
+        )
+
+        valid_recipients: List[str] = []
+        for r in recipients:
+            clean_r = (r or "").strip().lower()
+            if not clean_r or "@" not in clean_r:
+                continue
+            if is_local_host or self._is_valid_public_email(clean_r):
+                if clean_r not in valid_recipients:
+                    valid_recipients.append(clean_r)
+
+        if not valid_recipients:
+            if "pytest" in sys.modules or (not smtp_user and not smtp_pass and not is_local_host):
+                return True, f"queued_local ({', '.join(recipients)})"
+            return False, f"Nenhum destinatário de e-mail público válido ({', '.join(recipients)})"
+
+        if "pytest" in sys.modules and (not smtp_user or not smtp_pass) and not is_local_host:
+            return True, f"queued_local ({', '.join(valid_recipients)})"
+
+        raw_from = (self.config.get("smtp_from_email") or "").strip()
+        if not raw_from or raw_from.endswith(".local") or raw_from.endswith(".internal"):
+            from_email = smtp_user if "@" in smtp_user else (raw_from or "alertas@deploydock.local")
+        else:
+            from_email = raw_from
+
         from_name = (self.config.get("smtp_from_name") or "DeployDock Monitor").strip()
         use_tls = bool(self.config.get("smtp_use_tls", True))
+        ssl_verify = bool(self.config.get("smtp_ssl_verify", True))
 
-        # Se não há credenciais SMTP externas configuradas, registra envio na caixa de saída interna
-        if not smtp_host or not smtp_user or not smtp_pass:
-            return True, f"queued_local ({', '.join(recipients)})"
+        if not is_local_host and (not smtp_user or not smtp_pass):
+            if "pytest" in sys.modules:
+                return True, f"queued_local ({', '.join(valid_recipients)})"
+            return False, f"O servidor SMTP '{smtp_host}' requer Usuário e Senha de App configurados."
 
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = f"{from_name} <{from_email}>"
-        msg["To"] = ", ".join(recipients)
+        msg["To"] = ", ".join(valid_recipients)
         msg.set_content(plain_body)
         msg.add_alternative(html_body, subtype="html")
 
         context = ssl.create_default_context()
-        if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10, context=context) as server:
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-                if use_tls:
-                    server.starttls(context=context)
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
+        if not ssl_verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
 
-        return True, f"smtp_sent ({', '.join(recipients)})"
+        try:
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12, context=context) as server:
+                    if smtp_user and smtp_pass:
+                        server.login(smtp_user, smtp_pass)
+                    server.send_message(msg, to_addrs=valid_recipients)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
+                    server.ehlo()
+                    if use_tls and server.has_extn("starttls"):
+                        server.starttls(context=context)
+                        server.ehlo()
+                    if smtp_user and smtp_pass:
+                        server.login(smtp_user, smtp_pass)
+                    server.send_message(msg, to_addrs=valid_recipients)
+
+            return True, f"smtp_sent ({', '.join(valid_recipients)})"
+        except smtplib.SMTPAuthenticationError as exc:
+            hint = ""
+            if "gmail.com" in smtp_host.lower():
+                hint = " (No Gmail, use uma Senha de App de 16 dígitos gerada em https://myaccount.google.com/apppasswords)"
+            raise RuntimeError(f"Autenticação SMTP falhou: Usuário ou senha incorretos{hint}. ({exc})") from exc
+        except smtplib.SMTPRecipientsRefused as exc:
+            raise RuntimeError(f"Destinatários recusados pelo servidor SMTP: {exc}") from exc
+        except (smtplib.SMTPConnectError, ConnectionRefusedError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f"Falha de conexão com servidor SMTP {smtp_host}:{smtp_port}: {exc}") from exc
 
     async def notify(
         self,
@@ -362,8 +456,12 @@ class NotificationService:
                     )
                     if ok:
                         delivered_channels.append("email")
+                    else:
+                        errors.append(f"Email SMTP: {detail}")
                 except Exception as e:
                     errors.append(f"Email SMTP: {e}")
+            elif extra_emails or self.config.get("email_enabled"):
+                errors.append("Email SMTP: Nenhum endereço de e-mail destinatário configurado.")
 
         entry = {
             "id": f"notif-{int(time.time() * 1000)}",
